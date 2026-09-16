@@ -2,6 +2,7 @@ package ph.moneytrack.data
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 class FinanceRepository(private val db: FinanceDatabase, private val userId: String) {
     val incomes: Flow<List<Income>> = db.income().observe(userId)
