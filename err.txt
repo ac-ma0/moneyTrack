@@ -1,9 +1,5 @@
 server is running...
 ******/dbclient: Caution, skipping hostkey check for localhost
-FAILURE: Build failed with an exception.* Where:
-Build file '/storage/internal_new/project/moneyTrack/app/build.gradle' line: 1* What went wrong:A problem occurred evaluating project ':app'.> Failed to apply plugin [id 'com.android.internal.version-check']
-   > Minimum supported Gradle version is 6.7.1. Current version is 6.1.1. If using the gradle wrapper, try editing the distributionUrl in /storage/internal_new/project/moneyTrack/gradle/wrapper/gradle-wrapper.properties to gradle-6.7.1-all.zip
-* Try:
-Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.
-* Get more help at https://help.gradle.orgBUILD FAILED in 2s
+> Configure project :appWARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is experimental.
+FAILURE: Build failed with an exception.* What went wrong:Could not determine the dependencies of task ':app:prepareDebugKotlinCompileTask'.> Could not resolve all task dependencies for configuration ':app:kotlin-extension'.   > Could not find androidx.compose:compose-compiler:1.0.5.     Searched in the following locations:       - https://dl.google.com/dl/android/maven2/androidx/compose/compose-compiler/1.0.5/compose-compiler-1.0.5.pom       - https://repo.maven.apache.org/maven2/androidx/compose/compose-compiler/1.0.5/compose-compiler-1.0.5.pom     Required by:         project :app* Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.* Get more help at https://help.gradle.orgBUILD FAILED in 3s
 Failed: Command failed with: 1
