@@ -1,22 +1,21 @@
 server is running...
 ******/dbclient: Caution, skipping hostkey check for localhost
-> Configure project :app
-WARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is experimental.
-> Task :app:preBuild UP-TO-DATE> Task :app:preDebugBuild UP-TO-DATE
-> Task :app:generateDebugBuildConfig UP-TO-DATE
-> Task :app:compileDebugAidl NO-SOURCE
-> Task :app:compileDebugRenderscript NO-SOURCE
+> Configure project :appWARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is experimental.
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:generateDebugBuildConfig UP-TO-DATE> Task :app:compileDebugAidl NO-SOURCE> Task :app:compileDebugRenderscript NO-SOURCE
 > Task :app:generateDebugResValues UP-TO-DATE
 > Task :app:generateDebugResources UP-TO-DATE
-> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE> Task :app:extractDeepLinksDebug UP-TO-DATE
-> Task :app:javaPreCompileDebug UP-TO-DATE
 > Task :app:mergeDebugResources UP-TO-DATE
-> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE> Task :app:extractDeepLinksDebug UP-TO-DATE> Task :app:processDebugManifest UP-TO-DATE
 > Task :app:processDebugResources UP-TO-DATE
 > Task :app:kaptGenerateStubsDebugKotlin UP-TO-DATE
 > Task :app:kaptDebugKotlin UP-TO-DATE
-> Task :app:compileDebugKotlin
-e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/data/FinanceRepository.kt: (31, 115): No value passed for parameter 'oldValue'
-e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/data/SupabaseAuth.kt: (16, 58): 'kotlin.Result' cannot be used as a return typee: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/data/SupabaseAuth.kt: (21, 58): 'kotlin.Result' cannot be used as a return typee: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/data/SupabaseAuth.kt: (26, 62): 'kotlin.Result' cannot be used as a return type
-> Task :app:compileDebugKotlin FAILEDFAILURE: Build failed with an exception.* What went wrong:Execution failed for task ':app:compileDebugKotlin'.> Compilation error. See log for more details* Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.* Get more help at https://help.gradle.orgBUILD FAILED in 21s11 actionable tasks: 1 executed, 10 up-to-date
+> Task :app:compileDebugKotline: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (212, 32): Unresolved reference: title
+e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (213, 37): Unresolved reference: title
+e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (213, 57): Unresolved reference: amount
+e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (213, 75): Unresolved reference: occurredOn
+e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (214, 49): Unresolved reference: ide: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (214, 75): Unresolved reference: id
+> Task :app:compileDebugKotlin FAILED
+FAILURE: 10 actionable tasks: 1 executed, 9 up-to-dateBuild failed with an exception.* What went wrong:Execution failed for task ':app:compileDebugKotlin'.> Compilation error. See log for more details* Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.* Get more help at https://help.gradle.orgBUILD FAILED in 12s
 Failed: Command failed with: 1
