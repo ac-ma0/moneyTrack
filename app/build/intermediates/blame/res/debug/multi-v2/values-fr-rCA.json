@@ -4,7 +4,7 @@
             "outputFile": "/storage/internal_new/project/moneyTrack/app/build/intermediates/incremental/mergeDebugResources/merged.dir/values-fr-rCA/values-fr-rCA.xml",
             "map": [
                 {
-                    "source": "/home/test/.gradle/caches/transforms-2/files-2.1/988d6d0a672d29a5ddb7d3aa542f2c2b/core-1.7.0/res/values-fr-rCA/values-fr-rCA.xml",
+                    "source": "/home/test/.gradle/caches/transforms-2/files-2.1/d358c7814fdfa88f43ab288e4343070a/core-1.6.0/res/values-fr-rCA/values-fr-rCA.xml",
                     "from": {
                         "startLines": "2",
                         "startColumns": "4",

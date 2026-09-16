@@ -17,7 +17,7 @@
 13    <application
 13-->/storage/internal_new/project/moneyTrack/app/src/main/AndroidManifest.xml:4:5-11:19
 14        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
-14-->[androidx.core:core:1.7.0] /home/test/.gradle/caches/transforms-2/files-2.1/988d6d0a672d29a5ddb7d3aa542f2c2b/core-1.7.0/AndroidManifest.xml:24:18-86
+14-->[androidx.core:core:1.6.0] /home/test/.gradle/caches/transforms-2/files-2.1/d358c7814fdfa88f43ab288e4343070a/core-1.6.0/AndroidManifest.xml:24:18-86
 15        android:debuggable="true"
 16        android:extractNativeLibs="false"
 17        android:label="MoneyTrack PH"

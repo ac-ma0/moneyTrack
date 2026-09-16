@@ -1,0 +1,5 @@
+/storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt
+/storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/data/SyncProcessor.kt
+/storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/data/SupabaseAuth.kt
+/storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/data/Finance.kt
+/storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/data/FinanceRepository.kt
