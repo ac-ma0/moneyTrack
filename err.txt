@@ -5,10 +5,15 @@ WARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is e
 > Task :app:preBuild UP-TO-DATE
 > Task :app:preDebugBuild UP-TO-DATE
 > Task :app:compileDebugAidl NO-SOURCE
-> Task :app:generateDebugBuildConfig FAILED
-FAILURE: Build failed with an exception.
-* What went wrong:
-Execution failed for task ':app:generateDebugBuildConfig'.
-> Cannot read packageName from /storage/internal_new/project/moneyTrack/app/src/main/AndroidManifest.xml
-* Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan1 actionable task: 1 executed to get full insights.* Get more help at https://help.gradle.orgBUILD FAILED in 3s
+> Task :app:generateDebugBuildConfig UP-TO-DATE
+> Task :app:compileDebugRenderscript NO-SOURCE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugResources FAILED
+FAILURE: Build failed with an exception.* What went wrong:
+Execution failed for task ':app:processDebugResources'.> A failure occurred while executing com.android.build.gradle.internal.tasks.Workers$ActionFacade
+   > Android resource linking failed     /home/test/.gradle/caches/transforms-2/files-2.1/988d6d0a672d29a5ddb7d3aa542f2c2b/core-1.7.0/res/values/values.xml:105:5-114:25: AAPT: error: resource android:attr/lStar not found.         * Try:7 actionable tasks: 1 executed, 6 up-to-dateRun with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.* Get more help at https://help.gradle.orgBUILD FAILED in 5s
 Failed: Command failed with: 1
