@@ -1,0 +1,19 @@
+server is running...
+******/dbclient: Caution, skipping hostkey check for localhost
+> Configure project :app
+WARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is experimental and unsupported.
+> Task :app:preBuild UP-TO-DATE> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:compileDebugAidl NO-SOURCE
+> Task :app:compileDebugRenderscript NO-SOURCE
+> Task :app:checkDebugManifest UP-TO-DATE> Task :app:generateDebugBuildConfig UP-TO-DATE> Task :app:mainApkListPersistenceDebug UP-TO-DATE> Task :app:generateDebugResValues UP-TO-DATE> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugResources FAILED
+FAILURE: Build failed with an exception.
+* What went wrong:Execution failed for task ':app:processDebugResources'.> A failure occurred while executing com.android.build.gradle.internal.tasks.Workers$ActionFacade   > Android resource linking failed     /storage/internal_new/project/moneytrackph/app/src/main/AndroidManifest.xml:4:4-18:19: AAPT: error: resource style/AppTheme (aka com.example.moneytrackph:style/AppTheme) not found.         * Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.* Get more help at https://help.gradle.org
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 7.0.
+Use '--warning-mode all' to show the individual deprecation warnings.
+See https://docs.gradle.org/6.1.1/userguide/command_line_interface.html#sec:command_line_warnings8 actionable tasks: 1 executed, 7 up-to-date
+BUILD FAILED in 8s
+Failed: Command failed with: 1
