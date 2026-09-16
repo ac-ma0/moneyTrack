@@ -49,19 +49,22 @@ class MainActivity : AppCompatActivity() {
         signIn.setOnClickListener {
             signIn.isEnabled = false
             screenScope.launch {
-                auth.signIn(email.text.toString(), password.text.toString()).fold(
-                    { enterApp() },
-                    { message.text = it.message ?: "Sign in failed"; signIn.isEnabled = true }
-                )
+                when (val result = auth.signIn(email.text.toString(), password.text.toString())) {
+                    is AuthResult.Success -> enterApp()
+                    is AuthResult.Failure -> {
+                        message.text = result.error.message ?: "Sign in failed"
+                        signIn.isEnabled = true
+                    }
+                }
             }
         }
         val signUp = button("Create account")
         signUp.setOnClickListener {
             screenScope.launch {
-                auth.signUp(email.text.toString(), password.text.toString()).fold(
-                    { message.text = "Account created. Check your email, then sign in." },
-                    { message.text = it.message ?: "Sign up failed" }
-                )
+                when (val result = auth.signUp(email.text.toString(), password.text.toString())) {
+                    is AuthResult.Success -> message.text = "Account created. Check your email, then sign in."
+                    is AuthResult.Failure -> message.text = result.error.message ?: "Sign up failed"
+                }
             }
         }
         val offline = button("Continue offline")

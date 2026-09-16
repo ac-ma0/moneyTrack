@@ -28,7 +28,7 @@ class FinanceRepository(private val db: FinanceDatabase, private val userId: Str
         db.withTransaction {
             action()
             val payload = newValue?.toString()
-            db.audit().insert(AuditLog(userId=userId,action=operation,recordType=type,recordId=id,newValue=payload))
+            db.audit().insert(AuditLog(userId=userId,action=operation,recordType=type,recordId=id,oldValue=null,newValue=payload))
             db.sync().enqueue(SyncQueue(userId=userId,operation=operation,recordType=type,recordId=id,payload=payload ?: ""))
         }
     }

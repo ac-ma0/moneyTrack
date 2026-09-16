@@ -8,22 +8,27 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
+sealed class AuthResult {
+    data class Success(val body: String) : AuthResult()
+    data class Failure(val error: Throwable) : AuthResult()
+}
+
 class SupabaseAuth(
     private val url: String,
     private val publishableKey: String,
     private val client: OkHttpClient = OkHttpClient()
 ) {
-    suspend fun signIn(email: String, password: String): Result<String> = request(
+    suspend fun signIn(email: String, password: String): AuthResult = request(
         "/auth/v1/token?grant_type=password",
         "{\"email\":\"${escape(email)}\",\"password\":\"${escape(password)}\"}"
     )
 
-    suspend fun signUp(email: String, password: String): Result<String> = request(
+    suspend fun signUp(email: String, password: String): AuthResult = request(
         "/auth/v1/signup",
         "{\"email\":\"${escape(email)}\",\"password\":\"${escape(password)}\"}"
     )
 
-    private suspend fun request(path: String, json: String): Result<String> = withContext(Dispatchers.IO) {
+    private suspend fun request(path: String, json: String): AuthResult = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
                 .url(url.trimEnd('/') + path)
@@ -32,11 +37,11 @@ class SupabaseAuth(
                 .post(json.toRequestBody("application/json".toMediaType()))
                 .build()
             client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) Result.success(response.body?.string().orEmpty())
-                else Result.failure(IOException("Supabase authentication failed (${response.code})"))
+                if (response.isSuccessful) AuthResult.Success(response.body?.string().orEmpty())
+                else AuthResult.Failure(IOException("Supabase authentication failed (${response.code})"))
             }
         } catch (error: Exception) {
-            Result.failure(error)
+            AuthResult.Failure(error)
         }
     }
 
