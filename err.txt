@@ -1,5 +1,14 @@
 server is running...
 ******/dbclient: Caution, skipping hostkey check for localhost
-> Configure project :appWARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is experimental.
-FAILURE: Build failed with an exception.* What went wrong:Could not determine the dependencies of task ':app:prepareDebugKotlinCompileTask'.> Could not resolve all task dependencies for configuration ':app:kotlin-extension'.   > Could not find androidx.compose:compose-compiler:1.0.5.     Searched in the following locations:       - https://dl.google.com/dl/android/maven2/androidx/compose/compose-compiler/1.0.5/compose-compiler-1.0.5.pom       - https://repo.maven.apache.org/maven2/androidx/compose/compose-compiler/1.0.5/compose-compiler-1.0.5.pom     Required by:         project :app* Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.* Get more help at https://help.gradle.orgBUILD FAILED in 3s
+> Configure project :app
+WARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is experimental.
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:compileDebugAidl NO-SOURCE
+> Task :app:generateDebugBuildConfig FAILED
+FAILURE: Build failed with an exception.
+* What went wrong:
+Execution failed for task ':app:generateDebugBuildConfig'.
+> Cannot read packageName from /storage/internal_new/project/moneyTrack/app/src/main/AndroidManifest.xml
+* Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan1 actionable task: 1 executed to get full insights.* Get more help at https://help.gradle.orgBUILD FAILED in 3s
 Failed: Command failed with: 1
