@@ -1,8 +1,9 @@
 server is running...
 ******/dbclient: Caution, skipping hostkey check for localhost
-FAILURE: Build failed with an exception.
-* Where:
-Build file '/storage/internal_new/project/moneyTrack/app/build.gradle' line: 1
-* What went wrong:A problem occurred evaluating project ':app'.> Failed to apply plugin [id 'com.android.internal.version-check']
-   > Minimum supported Gradle version is 6.7.1. Current version is 6.1.1. If using the gradle wrapper, try editing the distributionUrl in /storage/internal_new/project/moneyTrack/gradle/wrapper/gradle-wrapper.properties to gradle-6.7.1-all.zip* Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.* Get more help at https://help.gradle.orgBUILD FAILED in 2s
+FAILURE: Build failed with an exception.* Where:
+Build file '/storage/internal_new/project/moneyTrack/app/build.gradle' line: 1* What went wrong:A problem occurred evaluating project ':app'.> Failed to apply plugin [id 'com.android.internal.version-check']
+   > Minimum supported Gradle version is 6.7.1. Current version is 6.1.1. If using the gradle wrapper, try editing the distributionUrl in /storage/internal_new/project/moneyTrack/gradle/wrapper/gradle-wrapper.properties to gradle-6.7.1-all.zip
+* Try:
+Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.
+* Get more help at https://help.gradle.orgBUILD FAILED in 2s
 Failed: Command failed with: 1
