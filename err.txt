@@ -1,19 +1,93 @@
-server is running...
-******/dbclient: Caution, skipping hostkey check for localhost
-> Configure project :app
-WARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is experimental and unsupported.
-> Task :app:preBuild UP-TO-DATE> Task :app:preDebugBuild UP-TO-DATE
-> Task :app:compileDebugAidl NO-SOURCE
-> Task :app:compileDebugRenderscript NO-SOURCE
-> Task :app:checkDebugManifest UP-TO-DATE> Task :app:generateDebugBuildConfig UP-TO-DATE> Task :app:mainApkListPersistenceDebug UP-TO-DATE> Task :app:generateDebugResValues UP-TO-DATE> Task :app:generateDebugResources UP-TO-DATE
-> Task :app:mergeDebugResources UP-TO-DATE
-> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
-> Task :app:processDebugManifest UP-TO-DATE
-> Task :app:processDebugResources FAILED
-FAILURE: Build failed with an exception.
-* What went wrong:Execution failed for task ':app:processDebugResources'.> A failure occurred while executing com.android.build.gradle.internal.tasks.Workers$ActionFacade   > Android resource linking failed     /storage/internal_new/project/moneytrackph/app/src/main/AndroidManifest.xml:4:4-18:19: AAPT: error: resource style/AppTheme (aka com.example.moneytrackph:style/AppTheme) not found.         * Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.* Get more help at https://help.gradle.org
-Deprecated Gradle features were used in this build, making it incompatible with Gradle 7.0.
-Use '--warning-mode all' to show the individual deprecation warnings.
-See https://docs.gradle.org/6.1.1/userguide/command_line_interface.html#sec:command_line_warnings8 actionable tasks: 1 executed, 7 up-to-date
-BUILD FAILED in 8s
-Failed: Command failed with: 1
+## ANDROIDIDE ENVIRONMENT — IMPORTANT
+
+I am developing and rebuilding this Android application using **AndroidIDE on an Android phone**, NOT Android Studio.
+
+The project must be compatible with my AndroidIDE environment.
+
+My AndroidIDE project creation screen currently provides:
+
+- Project Name: moneytrackph
+- Language: Kotlin
+- Gradle Version: 6.0
+- Minimum SDK: API 23 (Android 6.0)
+
+IMPORTANT:
+- Do NOT assume the latest Android Studio versions.
+- Do NOT automatically use the latest Gradle, Android Gradle Plugin, Kotlin, Compose, or library versions if they are incompatible with AndroidIDE.
+- Use versions that are mutually compatible with the AndroidIDE build environment.
+- Keep the project buildable directly inside AndroidIDE.
+- Avoid dependencies that require a newer Gradle/AGP/JDK environment than AndroidIDE can provide.
+- If a newer library version is incompatible, use a compatible stable version instead.
+- Do not require Android Studio for any step.
+- All Gradle commands and project files must work from AndroidIDE.
+- Keep the project simple enough to build on an Android phone.
+
+Before generating the project files, determine a compatible combination of:
+- Gradle
+- Android Gradle Plugin
+- Kotlin
+- Kotlin serialization
+- Jetpack Compose
+- Compose compiler
+- AndroidX libraries
+- Supabase Kotlin SDK
+- Room
+- Navigation
+- Coroutines
+
+Do NOT mix incompatible versions.
+
+The application must support:
+- Minimum SDK 23
+- Kotlin
+- Jetpack Compose if supported by the selected compatible toolchain
+- Supabase
+- Room offline database
+- AndroidIDE build environment
+
+If Jetpack Compose creates compatibility problems with the available AndroidIDE toolchain, use a simpler Android UI approach rather than forcing incompatible versions.
+
+### BUILD-FIRST RULE
+
+Before implementing all application features:
+
+1. Create the basic Android project.
+2. Make sure it builds successfully in AndroidIDE.
+3. Add Supabase dependency.
+4. Make sure Gradle sync/build still succeeds.
+5. Add Supabase connection.
+6. Test the connection.
+7. Only then continue with Room, Authentication, Dashboard, Income, Expenses, Debt Tracker, History, Reports, and other features.
+
+Do not generate the entire application at once if doing so could make debugging difficult.
+
+Build the application incrementally and provide complete files for each step.
+
+### SUPABASE PROJECT
+
+Supabase URL:
+
+https://rkwgxsxepldzvbajtlgg.supabase.co
+
+Supabase Publishable Key:
+
+sb_publishable_-LEQQFtT6qMcMHs6fDlIJA_wSpyIENU
+
+Use the Supabase Kotlin SDK compatible with the selected AndroidIDE toolchain.
+
+Do NOT use the Supabase service_role key or any secret key inside the Android application.
+
+Use Supabase RLS for database security.
+
+### ANDROIDIDE RESTRICTION
+
+Every code example must be designed so I can:
+
+1. Open the project in AndroidIDE.
+2. Edit the files directly on my Android phone.
+3. Run Gradle Sync/Build inside AndroidIDE.
+4. Build and install the APK from AndroidIDE.
+
+Do not tell me to open Android Studio.
+
+If a dependency or feature is incompatible with my AndroidIDE environment, explain the problem and choose a compatible alternative.
