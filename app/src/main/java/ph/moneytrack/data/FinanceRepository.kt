@@ -9,6 +9,10 @@ class FinanceRepository(private val db: FinanceDatabase, private val userId: Str
     val debts: Flow<List<Debt>> = db.debt().observe(userId)
     val audit: Flow<List<AuditLog>> = db.audit().observe(userId)
 
+    suspend fun incomesValue(): List<Income> = db.income().observe(userId).first()
+    suspend fun expensesValue(): List<Expense> = db.expense().observe(userId).first()
+    suspend fun debtsValue(): List<Debt> = db.debt().observe(userId).first()
+
     suspend fun saveIncome(value: Income) = write("upsert","income",value.id,value) { db.income().upsert(value) }
     suspend fun saveExpense(value: Expense) = write("upsert","expense",value.id,value) { db.expense().upsert(value) }
     suspend fun saveDebt(value: Debt) = write("upsert","debt",value.id,value) { db.debt().upsert(value) }
