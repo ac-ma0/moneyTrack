@@ -208,11 +208,23 @@ class MainActivity : AppCompatActivity() {
         val list = vertical(); page.addView(list)
         fun update() {
             list.removeAllViews()
-            val values = runBlockingValue { if (income) repository.incomesValue() else repository.expensesValue() }
-            values.filter { it.title.contains(search.text.toString(), true) }.forEach {
-                list.addView(row(it.title, "₱${money(it.amount)}  •  ${it.occurredOn}", if (income) Color.rgb(34,145,92) else Color.rgb(205,71,71)) {
-                    if (income) deleteIncome(it.id) else deleteExpense(it.id)
-                })
+            val query = search.text.toString()
+            if (income) {
+                runBlockingValue { repository.incomesValue() }
+                    .filter { it.title.contains(query, true) }
+                    .forEach { item ->
+                        list.addView(row(item.title, "₱${money(item.amount)}  •  ${item.occurredOn}", Color.rgb(34, 145, 92)) {
+                            deleteIncome(item.id)
+                        })
+                    }
+            } else {
+                runBlockingValue { repository.expensesValue() }
+                    .filter { it.title.contains(query, true) }
+                    .forEach { item ->
+                        list.addView(row(item.title, "₱${money(item.amount)}  •  ${item.occurredOn}", Color.rgb(205, 71, 71)) {
+                            deleteExpense(item.id)
+                        })
+                    }
             }
             if (list.childCount == 0) list.addView(label("No matching records yet.", 14f))
         }
