@@ -90,9 +90,19 @@ data class SyncQueue(
     @Query("UPDATE sync_queue SET attempts=attempts+1,lastError=:error WHERE id=:id") suspend fun failed(id:String,error:String)
 }
 
-@Database(entities=[Income::class,Expense::class,Debt::class,DebtMonthlyPayment::class,AuditLog::class,SyncQueue::class],version=1,exportSchema=false)
+@Database(entities=[Income::class,Expense::class,Debt::class,DebtMonthlyPayment::class,AuditLog::class,SyncQueue::class],version=2,exportSchema=false)
 abstract class FinanceDatabase:RoomDatabase() {
     abstract fun income():IncomeDao; abstract fun expense():ExpenseDao; abstract fun debt():DebtDao
     abstract fun payment():PaymentDao; abstract fun audit():AuditDao; abstract fun sync():SyncDao
-    companion object { fun create(context:android.content.Context)=Room.databaseBuilder(context,FinanceDatabase::class.java,"moneytrack.db").build() }
+    companion object {
+        @Volatile private var instance: FinanceDatabase? = null
+        fun create(context:android.content.Context): FinanceDatabase =
+            instance ?: synchronized(this) {
+                instance ?: Room.databaseBuilder(
+                    context.applicationContext,
+                    FinanceDatabase::class.java,
+                    "moneytrack.db"
+                ).fallbackToDestructiveMigration().build().also { instance = it }
+            }
+    }
 }
