@@ -15,6 +15,7 @@ data class LocalPermission(
     val canEditExpenses: Boolean = role != LocalRole.VIEWER,
     val canDeleteExpenses: Boolean = role == LocalRole.ADMIN,
     val canManageDebts: Boolean = role != LocalRole.VIEWER,
+    val canViewAllRecords: Boolean = role == LocalRole.ADMIN,
     val canViewReports: Boolean = true,
     val canViewHistory: Boolean = role == LocalRole.ADMIN,
     val canManageUsers: Boolean = role == LocalRole.ADMIN
@@ -92,18 +93,21 @@ data class SyncQueue(
 
 @Dao interface IncomeDao {
     @Query("SELECT * FROM income WHERE userId=:userId AND deleted=0 ORDER BY occurredOn DESC") fun observe(userId: String): Flow<List<Income>>
+    @Query("SELECT * FROM income WHERE deleted=0 ORDER BY occurredOn DESC") fun observeAll(): Flow<List<Income>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(value: Income)
     @Query("SELECT * FROM income WHERE id=:id AND userId=:userId LIMIT 1") suspend fun get(id:String,userId:String):Income?
     @Query("UPDATE income SET deleted=1, updatedAt=:at WHERE id=:id AND userId=:userId") suspend fun softDelete(id: String,userId: String,at: Long=System.currentTimeMillis())
 }
 @Dao interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE userId=:userId AND deleted=0 ORDER BY occurredOn DESC") fun observe(userId: String): Flow<List<Expense>>
+    @Query("SELECT * FROM expenses WHERE deleted=0 ORDER BY occurredOn DESC") fun observeAll(): Flow<List<Expense>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(value: Expense)
     @Query("SELECT * FROM expenses WHERE id=:id AND userId=:userId LIMIT 1") suspend fun get(id:String,userId:String):Expense?
     @Query("UPDATE expenses SET deleted=1, updatedAt=:at WHERE id=:id AND userId=:userId") suspend fun softDelete(id: String,userId: String,at: Long=System.currentTimeMillis())
 }
 @Dao interface DebtDao {
     @Query("SELECT * FROM debts WHERE userId=:userId AND deleted=0 ORDER BY startDate DESC") fun observe(userId: String): Flow<List<Debt>>
+    @Query("SELECT * FROM debts WHERE deleted=0 ORDER BY startDate DESC") fun observeAll(): Flow<List<Debt>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(value: Debt)
     @Query("SELECT * FROM debts WHERE id=:id AND userId=:userId LIMIT 1") suspend fun get(id:String,userId:String):Debt?
     @Query("UPDATE debts SET status=:status, updatedAt=:at WHERE id=:id AND userId=:userId") suspend fun setStatus(id:String,userId:String,status:String,at:Long=System.currentTimeMillis())

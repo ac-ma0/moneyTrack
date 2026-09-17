@@ -3,14 +3,13 @@ package ph.moneytrack
 import android.app.AlertDialog
 import android.graphics.Color
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.drawerlayout.widget.DrawerLayout
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
@@ -29,32 +28,22 @@ class MainActivity : AppCompatActivity() {
     private lateinit var page: LinearLayout
     private lateinit var pageTitle: TextView
     private var syncTrigger: ConnectivitySyncTrigger? = null
-    private val autoSyncHandler = Handler(Looper.getMainLooper())
-    private val autoSyncRunnable = object : Runnable {
-        override fun run() {
-            if (::syncRepository.isInitialized && ::syncProcessor.isInitialized) {
-                scope.launch(Dispatchers.IO) {
-                    syncRepository.refreshSession()
-                    syncProcessor.synchronize(
-                        uploader = { item -> syncRepository.upload(item) },
-                        puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
-                    )
-                }
-            }
-            autoSyncHandler.postDelayed(this, 5 * 60 * 1000L)
-        }
-    }
     private lateinit var syncRepository: SupabaseSyncRepository
     private lateinit var syncProcessor: SyncProcessor
     private var observing = false
     private var current = "Dashboard"
+    private var cloudUsers: List<Pair<String, String>> = emptyList()
     private var dark = false
     private var accent = Color.rgb(35, 105, 175)
     private val permission: LocalPermission
         get() {
             val prefs = getSharedPreferences("moneytrack", 0)
-            val role = runCatching { LocalRole.valueOf(prefs.getString("role", "ADMIN") ?: "ADMIN") }.getOrDefault(LocalRole.ADMIN)
-            fun allowed(name: String, fallback: Boolean) = prefs.getBoolean("permission_$name", fallback)
+            val session = SessionStore(this)
+            val storedRole = if (session.accessToken != null) session.role else prefs.getString("role", "ADMIN") ?: "ADMIN"
+            val role = runCatching { LocalRole.valueOf(storedRole.toUpperCase(Locale.US)) }.getOrDefault(LocalRole.ADMIN)
+            val cloudPermissions = session.permissions()
+            val cloudPolicyLoaded = session.accessToken != null
+            fun allowed(name: String, fallback: Boolean) = if (role == LocalRole.ADMIN) true else if (cloudPolicyLoaded) cloudPermissions.contains(name) else prefs.getBoolean("permission_$name", fallback)
             return LocalPermission(
                 role = role,
                 canAddIncome = allowed("add_income", role != LocalRole.VIEWER),
@@ -64,6 +53,7 @@ class MainActivity : AppCompatActivity() {
                 canEditExpenses = allowed("edit_expenses", role != LocalRole.VIEWER),
                 canDeleteExpenses = allowed("delete_expenses", role == LocalRole.ADMIN),
                 canManageDebts = allowed("manage_debts", role != LocalRole.VIEWER),
+                canViewAllRecords = allowed("view_all_records", role == LocalRole.ADMIN),
                 canViewReports = allowed("view_reports", true),
                 canViewHistory = allowed("view_history", role == LocalRole.ADMIN),
                 canManageUsers = allowed("manage_users", role == LocalRole.ADMIN)
@@ -87,7 +77,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         syncTrigger?.stop()
-        autoSyncHandler.removeCallbacks(autoSyncRunnable)
         scope.cancel()
         super.onDestroy()
     }
@@ -147,7 +136,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun enterApp() {
         getSharedPreferences("moneytrack", 0).edit().putBoolean("signed_in", true).apply()
-        repository = FinanceRepository(FinanceDatabase.create(this), userId)
+        repository = FinanceRepository(
+            FinanceDatabase.create(this),
+            userId,
+            SessionStore(this).role == "admin" || SessionStore(this).permissions().contains("view_all_records")
+        )
         syncRepository = SupabaseSyncRepository(
             BuildConfig.SUPABASE_URL,
             BuildConfig.SUPABASE_ANON_KEY,
@@ -156,17 +149,18 @@ class MainActivity : AppCompatActivity() {
         syncProcessor = SyncProcessor(FinanceDatabase.create(this))
         syncTrigger = ConnectivitySyncTrigger(this) {
             syncRepository.refreshSession()
+            syncRepository.refreshAccessPolicy()
             syncProcessor.synchronize(
                 uploader = { item -> syncRepository.upload(item) },
                 puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
             )
         }
-        autoSyncHandler.removeCallbacks(autoSyncRunnable)
-        autoSyncHandler.postDelayed(autoSyncRunnable, 5 * 60 * 1000L)
         try {
             syncTrigger?.start()
             scope.launch(Dispatchers.IO) {
                 syncRepository.refreshSession()
+                syncRepository.refreshAccessPolicy()
+                withContext(Dispatchers.Main) { reloadRepositoryScope() }
                 syncProcessor.synchronize(
                     uploader = { item -> syncRepository.upload(item) },
                     puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
@@ -201,21 +195,33 @@ class MainActivity : AppCompatActivity() {
         toolbar.addView(label("₱", 24f))
         main.addView(toolbar)
         page = vertical()
-        main.addView(ScrollView(this).apply { addView(page) }, LinearLayout.LayoutParams(-1, 0, 1f))
+        val refreshLayout = SwipeRefreshLayout(this)
+        refreshLayout.setOnRefreshListener {
+            syncNow { refreshLayout.isRefreshing = false }
+        }
+        refreshLayout.addView(ScrollView(this).apply { addView(page) })
+        main.addView(refreshLayout, LinearLayout.LayoutParams(-1, 0, 1f))
         drawer.addView(main, DrawerLayout.LayoutParams(-1, -1))
         drawer.addView(buildDrawer(), DrawerLayout.LayoutParams(dp(300), -1).apply { gravity = Gravity.LEFT })
         setContentView(drawer)
     }
 
     private fun syncNow() {
+        syncNow(null)
+    }
+
+    private fun syncNow(onComplete: (() -> Unit)?) {
         if (!::syncRepository.isInitialized || !::syncProcessor.isInitialized) {
             Toast.makeText(this, "Sync is not available in offline mode.", Toast.LENGTH_SHORT).show()
+            onComplete?.invoke()
             return
         }
         Toast.makeText(this, "Syncing local changes and fetching cloud data...", Toast.LENGTH_SHORT).show()
         scope.launch {
             val success = withContext(Dispatchers.IO) {
                 syncRepository.refreshSession()
+                syncRepository.refreshAccessPolicy()
+                withContext(Dispatchers.Main) { reloadRepositoryScope() }
                 syncProcessor.synchronize(
                     uploader = { item -> syncRepository.upload(item) },
                     puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
@@ -227,6 +233,7 @@ class MainActivity : AppCompatActivity() {
                 if (success) "Sync complete." else "Sync incomplete: ${syncRepository.lastError ?: "check Supabase schema, RLS, and session."}",
                 Toast.LENGTH_LONG
             ).show()
+            onComplete?.invoke()
         }
     }
 
@@ -252,7 +259,6 @@ class MainActivity : AppCompatActivity() {
                         getSharedPreferences("moneytrack", 0).edit().putBoolean("signed_in", false).apply()
                         SessionStore(this@MainActivity).clear()
                         syncTrigger?.stop()
-                        autoSyncHandler.removeCallbacks(autoSyncRunnable)
                         syncTrigger = null
                         observing = false
                         showLogin()
@@ -370,7 +376,7 @@ class MainActivity : AppCompatActivity() {
             val actions = horizontal()
             actions.addView(button("Edit").also { it.setOnClickListener { editDebt(debt) } }, weight())
             actions.addView(button(if (debt.status == "paid") "Mark active" else "Mark paid").also {
-                it.setOnClickListener { scope.launch { repository.setDebtStatus(debt.id, if (debt.status == "paid") "active" else "paid") } }
+                it.setOnClickListener { scope.launch { repository.setDebtStatus(debt.id, if (debt.status == "paid") "active" else "paid"); syncAfterAction() } }
             }, weight())
             actions.addView(button("Delete").also { it.setOnClickListener { deleteDebt(debt.id) } }, weight())
             box.addView(actions); page.addView(box)
@@ -402,6 +408,7 @@ class MainActivity : AppCompatActivity() {
                             status = status
                         )
                     )
+                    syncAfterAction()
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -477,8 +484,40 @@ class MainActivity : AppCompatActivity() {
     private fun renderUsers() {
         page.addView(label("Users", 26f)); page.addView(label("Roles and permissions for this AndroidIDE MVP.", 14f))
         val prefs = getSharedPreferences("moneytrack", 0)
+        page.addView(button("Refresh users from Supabase").also {
+            it.setOnClickListener {
+                scope.launch {
+                    try {
+                        cloudUsers = withContext(Dispatchers.IO) { syncRepository.fetchProfiles() }
+                        render()
+                    } catch (error: Exception) {
+                        Toast.makeText(this@MainActivity, error.message ?: "User fetch failed", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        })
+        if (cloudUsers.isNotEmpty()) {
+            page.addView(label("Supabase users", 16f))
+            cloudUsers.forEach { user ->
+                page.addView(transactionRow(user.first, user.second, accent, permission.canManageUsers, false,
+                    {
+                        val id = user.first.substringBefore(" •")
+                        val options = arrayOf("admin", "user")
+                        AlertDialog.Builder(this).setTitle("Set role").setItems(options) { _, index ->
+                            scope.launch {
+                                if (syncRepository.updateProfileRole(id, options[index])) {
+                                    cloudUsers = withContext(Dispatchers.IO) { syncRepository.fetchProfiles() }
+                                    render()
+                                }
+                            }
+                        }.show()
+                    }, {}))
+            }
+        } else if (permission.canManageUsers) {
+            page.addView(label("Press refresh to load users from Supabase.", 14f))
+        }
         val managedUsers = HashSet(prefs.getStringSet("managed_users", emptySet()) ?: emptySet())
-        page.addView(button("Add user").also { it.setOnClickListener { editManagedUser(null) } })
+        page.addView(button("Add Supabase user").also { it.setOnClickListener { addSupabaseUser() } })
         managedUsers.forEach { entry ->
             val parts = entry.split("|")
             val name = parts.getOrElse(0) { "User" }
@@ -499,12 +538,16 @@ class MainActivity : AppCompatActivity() {
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
                 override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                     prefs.edit().putString("role", LocalRole.values()[position].name).apply()
+                    scope.launch {
+                        syncRepository.updateProfileRole(userId, if (position == 0) "admin" else "user")
+                        syncRepository.refreshAccessPolicy()
+                    }
                 }
             }
         }
         page.addView(label("Current role", 14f)); page.addView(role)
         val permissions = arrayOf(
-            "view_records" to "View all records", "add_income" to "Add income", "edit_income" to "Edit income",
+            "view_all_records" to "View all records", "add_income" to "Add income", "edit_income" to "Edit income",
             "delete_income" to "Delete income", "add_expenses" to "Add expenses", "edit_expenses" to "Edit expenses",
             "delete_expenses" to "Delete expenses", "manage_debts" to "Manage debts", "view_reports" to "View reports",
             "view_history" to "View history", "manage_users" to "Manage users"
@@ -512,8 +555,11 @@ class MainActivity : AppCompatActivity() {
         permissions.forEach { (key, title) ->
             page.addView(CheckBox(this).apply {
                 text = title
-                isChecked = prefs.getBoolean("permission_$key", permission.role == LocalRole.ADMIN || (key == "view_records" || key == "view_reports"))
-                setOnCheckedChangeListener { _, checked -> prefs.edit().putBoolean("permission_$key", checked).apply() }
+                isChecked = prefs.getBoolean("permission_$key", permission.role == LocalRole.ADMIN || (key == "view_all_records" || key == "view_reports"))
+                setOnCheckedChangeListener { _, checked ->
+                    prefs.edit().putBoolean("permission_$key", checked).apply()
+                    scope.launch { syncRepository.setPermission(userId, key, checked) }
+                }
             })
         }
         page.addView(label("Admin can manage all permissions. User access is limited to the permissions enabled here.", 13f))
@@ -525,6 +571,23 @@ class MainActivity : AppCompatActivity() {
         val role = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, LocalRole.values().map { it.name }.toTypedArray())
             setSelection(LocalRole.values().indexOf(runCatching { LocalRole.valueOf(parts?.getOrElse(1) { "VIEWER" } ?: "VIEWER") }.getOrDefault(LocalRole.VIEWER)))
+        }
+
+        private fun addSupabaseUser() {
+            val email = field("Email")
+            val password = field("Temporary password").apply {
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+            val box = vertical(); box.addView(email); box.addView(password)
+            AlertDialog.Builder(this).setTitle("Add Supabase user").setView(box)
+                .setPositiveButton("Create") { _, _ ->
+                    scope.launch {
+                        val created = syncRepository.createUser(email.text.toString().trim(), password.text.toString())
+                        Toast.makeText(this@MainActivity,
+                            if (created) "User created. Assign role and permissions after refreshing users." else syncRepository.lastError ?: "User creation failed.",
+                            Toast.LENGTH_LONG).show()
+                    }
+                }.setNegativeButton("Cancel", null).show()
         }
         val box = vertical(); box.addView(name); box.addView(role)
         AlertDialog.Builder(this)
@@ -557,7 +620,7 @@ class MainActivity : AppCompatActivity() {
                 val cents = ((amount.text.toString().toDoubleOrNull() ?: 0.0) * 100).toLong()
                 if (title.text.toString().trim().isEmpty() || cents <= 0) return@setPositiveButton
                 scope.launch { if (income) repository.saveIncome(Income(id = (existing as? Income)?.id ?: UUID.randomUUID().toString(), userId=userId,title=title.text.toString(),amount=cents,occurredOn=date.text.toString(),category=category.text.toString().trim().takeIf { it.isNotEmpty() },notes=notes.text.toString().takeIf { it.isNotEmpty() }))
-                else repository.saveExpense(Expense(id = (existing as? Expense)?.id ?: UUID.randomUUID().toString(), userId=userId,title=title.text.toString(),amount=cents,occurredOn=date.text.toString(),category=category.text.toString().trim().takeIf { it.isNotEmpty() },notes=notes.text.toString().takeIf { it.isNotEmpty() })) }
+                else repository.saveExpense(Expense(id = (existing as? Expense)?.id ?: UUID.randomUUID().toString(), userId=userId,title=title.text.toString(),amount=cents,occurredOn=date.text.toString(),category=category.text.toString().trim().takeIf { it.isNotEmpty() },notes=notes.text.toString().takeIf { it.isNotEmpty() })); syncAfterAction() }
             }.setNegativeButton("Cancel", null).show()
     }
 
@@ -584,16 +647,38 @@ class MainActivity : AppCompatActivity() {
                 val interest = rate.text.toString().toDoubleOrNull() ?: 0.0
                 val kind = type.text.toString().trim().ifEmpty { "flat" }
                 val total = DebtCalculator.total(cents, interest, kind, n)
-                repository.saveDebt(Debt(id=existing?.id ?: UUID.randomUUID().toString(),userId=userId,person=person.text.toString(),principalAmount=cents,interestRate=interest,interestType=kind,numberOfMonths=n,startDate=existing?.startDate ?: today(),dueDate=due.text.toString().takeIf { it.isNotBlank() },monthlyExpectedPayment=monthlyCents ?: DebtCalculator.monthly(total,n),totalPayable=total,notes=notes.text.toString().takeIf { it.isNotBlank() }))
+                repository.saveDebt(Debt(id=existing?.id ?: UUID.randomUUID().toString(),userId=userId,person=person.text.toString(),principalAmount=cents,interestRate=interest,interestType=kind,numberOfMonths=n,startDate=existing?.startDate ?: today(),dueDate=due.text.toString().takeIf { it.isNotBlank() },monthlyExpectedPayment=monthlyCents ?: DebtCalculator.monthly(total,n),totalPayable=total,notes=notes.text.toString().takeIf { it.isNotBlank() })); syncAfterAction()
             }
         }.setNegativeButton("Cancel", null).show()
     }
 
     private fun editDebt(debt: Debt) { addDebt(debt) }
 
-    private fun deleteIncome(id: String) { scope.launch { repository.deleteIncome(id) } }
-    private fun deleteExpense(id: String) { scope.launch { repository.deleteExpense(id) } }
-    private fun deleteDebt(id: String) { scope.launch { repository.deleteDebt(id) } }
+    private fun deleteIncome(id: String) { scope.launch { repository.deleteIncome(id); syncAfterAction() } }
+    private fun deleteExpense(id: String) { scope.launch { repository.deleteExpense(id); syncAfterAction() } }
+    private fun deleteDebt(id: String) { scope.launch { repository.deleteDebt(id); syncAfterAction() } }
+
+    private fun syncAfterAction() {
+        if (!::syncRepository.isInitialized || !::syncProcessor.isInitialized) return
+        scope.launch(Dispatchers.IO) {
+            syncRepository.refreshSession()
+            syncRepository.refreshAccessPolicy()
+            withContext(Dispatchers.Main) { reloadRepositoryScope() }
+            syncProcessor.synchronize(
+                uploader = { item -> syncRepository.upload(item) },
+                puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
+            )
+        }
+    }
+
+    private fun reloadRepositoryScope() {
+        val session = SessionStore(this)
+        val viewAll = session.role == "admin" || session.permissions().contains("view_all_records")
+        repository = FinanceRepository(FinanceDatabase.create(this), userId, viewAll)
+        observing = false
+        observeData()
+        render()
+    }
 
     private fun vertical() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(18), dp(20), dp(18)) }
     private fun horizontal() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -619,9 +704,30 @@ class MainActivity : AppCompatActivity() {
     }
     private fun rgbEditor(name: String, initial: Int, changed: (Int) -> Unit): LinearLayout {
         val box = horizontal()
+        val preview = TextView(this).apply {
+            text = "Preview"
+            gravity = Gravity.CENTER
+            setTextColor(if (name == "text") initial else Color.WHITE)
+            setBackgroundColor(if (name == "text") getThemeColor("background", Color.DKGRAY) else initial)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+        }
         val red = field("R").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(Color.red(initial).toString()) }
         val green = field("G").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(Color.green(initial).toString()) }
         val blue = field("B").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(Color.blue(initial).toString()) }
+        fun previewColor() {
+            val color = Color.rgb(red.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0,
+                green.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0,
+                blue.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0)
+            if (name == "text") {
+                preview.setTextColor(color)
+                preview.setBackgroundColor(getThemeColor("background", Color.DKGRAY))
+            } else {
+                preview.setTextColor(Color.WHITE)
+                preview.setBackgroundColor(color)
+            }
+        }
+        val watcher = SimpleTextWatcher { previewColor() }
+        red.addTextChangedListener(watcher); green.addTextChangedListener(watcher); blue.addTextChangedListener(watcher)
         val apply = button("Apply")
         apply.setOnClickListener {
             val color = Color.rgb(red.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0,
@@ -629,7 +735,7 @@ class MainActivity : AppCompatActivity() {
                 blue.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0)
             changed(color)
         }
-        box.addView(red, weight()); box.addView(green, weight()); box.addView(blue, weight()); box.addView(apply)
+        box.addView(preview, weight()); box.addView(red, weight()); box.addView(green, weight()); box.addView(blue, weight()); box.addView(apply)
         return box
     }
     private fun getThemeColor(name: String, fallback: Int): Int =

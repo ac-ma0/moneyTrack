@@ -27,6 +27,13 @@ class SessionStore(context: Context) {
     var refreshToken: String?
         get() = prefs.getString("refresh_token", null)
         set(value) { if (value == null) prefs.edit().remove("refresh_token").apply() else prefs.edit().putString("refresh_token", value).apply() }
+    var role: String
+        get() = prefs.getString("role", "user") ?: "user"
+        set(value) { prefs.edit().putString("role", value).apply() }
+    fun setPermissions(values: Set<String>) {
+        prefs.edit().putStringSet("permissions", values).apply()
+    }
+    fun permissions(): Set<String> = prefs.getStringSet("permissions", emptySet()) ?: emptySet()
     fun clear() { prefs.edit().clear().apply() }
 }
 
@@ -38,6 +45,94 @@ class SupabaseSyncRepository(
 ) {
     var lastError: String? = null
         private set
+
+    suspend fun refreshAccessPolicy(): Boolean = withContext(Dispatchers.IO) {
+        val token = session.accessToken ?: return@withContext false
+        val uid = session.userId ?: return@withContext false
+        val profileRequest = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/rest/v1/profiles?id=eq.$uid&select=role")
+            .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer " + token).get().build()
+        val permissionRequest = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/rest/v1/user_permissions?user_id=eq.$uid&select=permission")
+            .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer " + token).get().build()
+        try {
+            client.newCall(profileRequest).execute().use { response ->
+                if (!response.isSuccessful) return@withContext false
+                val rows = JSONArray(response.body?.string().orEmpty())
+                if (rows.length() > 0) session.role = rows.optJSONObject(0)?.optString("role", "user") ?: "user"
+            }
+
+            client.newCall(permissionRequest).execute().use { response ->
+                if (!response.isSuccessful) return@withContext false
+                val rows = JSONArray(response.body?.string().orEmpty())
+                val permissions = mutableSetOf<String>()
+                for (i in 0 until rows.length()) rows.optJSONObject(i)?.optString("permission")?.let { permissions.add(it) }
+                session.setPermissions(permissions)
+            }
+
+            true
+        } catch (error: IOException) {
+            lastError = "Permission fetch failed: ${error.message}"
+            false
+        }
+    }
+
+    suspend fun fetchProfiles(): List<Pair<String, String>> = withContext(Dispatchers.IO) {
+        val token = session.accessToken ?: return@withContext emptyList()
+        val request = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/rest/v1/profiles?select=id,full_name,role&order=created_at.asc")
+            .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer " + token).get().build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("User fetch failed (${response.code})")
+            val rows = JSONArray(response.body?.string().orEmpty())
+            val result = mutableListOf<Pair<String, String>>()
+            for (i in 0 until rows.length()) {
+                val row = rows.optJSONObject(i) ?: continue
+                result.add((row.optString("id") + " • " + row.optString("full_name", "Unnamed")) to row.optString("role", "user"))
+            }
+            result
+        }
+    }
+
+    suspend fun updateProfileRole(userId: String, role: String): Boolean = withContext(Dispatchers.IO) {
+        val token = session.accessToken ?: return@withContext false
+        val payload = JSONObject().put("id", userId).put("role", role).toString()
+        val request = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/rest/v1/profiles?on_conflict=id")
+            .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer " + token)
+            .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+            .addHeader("Content-Type", "application/json")
+            .post(payload.toRequestBody("application/json".toMediaType())).build()
+        client.newCall(request).execute().use { it.isSuccessful }
+    }
+
+    suspend fun setPermission(userId: String, permission: String, granted: Boolean): Boolean = withContext(Dispatchers.IO) {
+        val token = session.accessToken ?: return@withContext false
+        val encodedPermission = java.net.URLEncoder.encode(permission, "UTF-8")
+        val request = if (granted) Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/rest/v1/user_permissions?on_conflict=user_id,permission")
+            .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer " + token)
+            .addHeader("Prefer", "resolution=merge-duplicates,return=minimal").addHeader("Content-Type", "application/json")
+            .post(JSONObject().put("user_id", userId).put("permission", permission).put("granted_by", session.userId).toString().toRequestBody("application/json")).build()
+        else Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/rest/v1/user_permissions?user_id=eq.$userId&permission=eq.$encodedPermission")
+            .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer " + token).delete().build()
+        client.newCall(request).execute().use { it.isSuccessful }
+    }
+
+    suspend fun createUser(email: String, password: String): Boolean = withContext(Dispatchers.IO) {
+        val payload = JSONObject().put("email", email).put("password", password).toString()
+        val request = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/auth/v1/signup")
+            .addHeader("apikey", apiKey).addHeader("Content-Type", "application/json")
+            .post(payload.toRequestBody("application/json".toMediaType())).build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                lastError = "User creation failed (${response.code}): ${response.body?.string().orEmpty().take(160)}"
+            }
+            response.isSuccessful
+        }
+    }
 
     suspend fun refreshSession(): Boolean = withContext(Dispatchers.IO) {
         val refresh = session.refreshToken ?: return@withContext false
@@ -100,11 +195,12 @@ class SupabaseSyncRepository(
         false
     }
 
-    suspend fun pull(table: String, userId: String, updatedAfter: Long = 0L): String = withContext(Dispatchers.IO) {
+    suspend fun pull(table: String, userId: String, updatedAfter: Long = 0L, allUsers: Boolean = false): String = withContext(Dispatchers.IO) {
         val token = session.accessToken ?: throw IOException("No Supabase access token. Sign in again.")
         val encodedTime = java.net.URLEncoder.encode(iso(updatedAfter), "UTF-8")
         val encodedUser = java.net.URLEncoder.encode(userId, "UTF-8")
-        val url = baseUrl.trimEnd('/') + "/rest/v1/$table?user_id=eq.$encodedUser&updated_at=gt.$encodedTime&order=updated_at.asc"
+        val ownerFilter = if (allUsers) "" else "user_id=eq.$encodedUser&"
+        val url = baseUrl.trimEnd('/') + "/rest/v1/$table?$ownerFilter" + "updated_at=gt.$encodedTime&order=updated_at.asc"
         val request = Request.Builder()
             .url(url)
             .addHeader("apikey", apiKey)
@@ -116,7 +212,7 @@ class SupabaseSyncRepository(
             if (!response.isSuccessful) {
                 val detail = response.body?.string().orEmpty()
                 if (response.code == 400) {
-                    return@withContext pullLegacy(table, encodedUser, token)
+                    return@withContext pullLegacy(table, encodedUser, token, allUsers)
                 }
                 throw IOException("Fetch $table failed (${response.code}): ${detail.take(180)}")
             }
@@ -124,9 +220,9 @@ class SupabaseSyncRepository(
         }
     }
 
-    private fun pullLegacy(table: String, encodedUser: String, token: String): String {
+    private fun pullLegacy(table: String, encodedUser: String, token: String, allUsers: Boolean): String {
         val request = Request.Builder()
-            .url(baseUrl.trimEnd('/') + "/rest/v1/$table?user_id=eq.$encodedUser")
+            .url(baseUrl.trimEnd('/') + "/rest/v1/$table?" + if (allUsers) "" else "user_id=eq.$encodedUser")
             .addHeader("apikey", apiKey)
             .addHeader("Authorization", "Bearer " + token)
             .addHeader("Accept", "application/json")
@@ -142,8 +238,9 @@ class SupabaseSyncRepository(
 
     suspend fun pullAll(db: FinanceDatabase, userId: String, updatedAfter: Long = 0L) {
         try {
+            val allUsers = session.role == "admin" || session.permissions().contains("view_all_records")
             listOf("income", "expenses", "debts", "debt_monthly_payments").forEach { table ->
-                applyRows(db, userId, table, JSONArray(pull(table, userId, updatedAfter)))
+                applyRows(db, userId, allUsers, table, JSONArray(pull(table, userId, updatedAfter, allUsers)))
             }
         } catch (error: Exception) {
             lastError = error.message ?: "Cloud fetch failed."
@@ -151,27 +248,28 @@ class SupabaseSyncRepository(
         }
     }
 
-    private suspend fun applyRows(db: FinanceDatabase, userId: String, table: String, rows: JSONArray) {
+    private suspend fun applyRows(db: FinanceDatabase, userId: String, allUsers: Boolean, table: String, rows: JSONArray) {
         for (i in 0 until rows.length()) {
             val row = rows.optJSONObject(i) ?: continue
-            if (row.optString("user_id") != userId) continue
+            if (!allUsers && row.optString("user_id") != userId) continue
+            val ownerId = row.optString("user_id").ifEmpty { userId }
             val at = millis(row, "updated_at")
             when (table) {
                 "income" -> {
-                    val value = Income(row.optString("id"), userId, row.optString("title"), cents(row, "amount"), row.optString("occurred_on"), nullable(row, "category"), nullable(row, "notes"), at, row.optBoolean("deleted"))
-                    if ((db.income().get(value.id, userId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.income().upsert(value)
+                    val value = Income(row.optString("id"), ownerId, row.optString("title"), cents(row, "amount"), row.optString("occurred_on"), nullable(row, "category"), nullable(row, "notes"), at, row.optBoolean("deleted"))
+                    if ((db.income().get(value.id, ownerId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.income().upsert(value)
                 }
                 "expenses" -> {
-                    val value = Expense(row.optString("id"), userId, row.optString("title"), cents(row, "amount"), row.optString("occurred_on"), nullable(row, "category"), nullable(row, "notes"), at, row.optBoolean("deleted"))
-                    if ((db.expense().get(value.id, userId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.expense().upsert(value)
+                    val value = Expense(row.optString("id"), ownerId, row.optString("title"), cents(row, "amount"), row.optString("occurred_on"), nullable(row, "category"), nullable(row, "notes"), at, row.optBoolean("deleted"))
+                    if ((db.expense().get(value.id, ownerId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.expense().upsert(value)
                 }
                 "debts" -> {
-                    val value = Debt(row.optString("id"), userId, row.optString("person"), cents(row, "principal_amount"), row.optDouble("interest_rate"), row.optString("interest_type", "flat"), row.optInt("number_of_months", 1), row.optString("start_date"), nullable(row, "due_date"), optionalCents(row, "monthly_expected_payment"), optionalCents(row, "total_payable"), nullable(row, "notes"), row.optString("status", "active"), at, row.optBoolean("deleted"))
-                    if ((db.debt().get(value.id, userId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.debt().upsert(value)
+                    val value = Debt(row.optString("id"), ownerId, row.optString("person"), cents(row, "principal_amount"), row.optDouble("interest_rate"), row.optString("interest_type", "flat"), row.optInt("number_of_months", 1), row.optString("start_date"), nullable(row, "due_date"), optionalCents(row, "monthly_expected_payment"), optionalCents(row, "total_payable"), nullable(row, "notes"), row.optString("status", "active"), at, row.optBoolean("deleted"))
+                    if ((db.debt().get(value.id, ownerId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.debt().upsert(value)
                 }
                 "debt_monthly_payments" -> {
-                    val value = DebtMonthlyPayment(row.optString("id"), row.optString("debt_id"), userId, row.optString("payment_month"), cents(row, "amount"), row.optString("status", "unpaid"), nullable(row, "notes"), at, row.optBoolean("deleted"))
-                    if ((db.payment().get(value.id, userId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.payment().upsert(value)
+                    val value = DebtMonthlyPayment(row.optString("id"), row.optString("debt_id"), ownerId, row.optString("payment_month"), cents(row, "amount"), row.optString("status", "unpaid"), nullable(row, "notes"), at, row.optBoolean("deleted"))
+                    if ((db.payment().get(value.id, ownerId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.payment().upsert(value)
                 }
             }
         }

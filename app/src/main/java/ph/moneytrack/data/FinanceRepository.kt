@@ -9,15 +9,15 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-class FinanceRepository(private val db: FinanceDatabase, private val userId: String) {
-    val incomes: Flow<List<Income>> = db.income().observe(userId)
-    val expenses: Flow<List<Expense>> = db.expense().observe(userId)
-    val debts: Flow<List<Debt>> = db.debt().observe(userId)
+class FinanceRepository(private val db: FinanceDatabase, private val userId: String, private val viewAll: Boolean = false) {
+    val incomes: Flow<List<Income>> = if (viewAll) db.income().observeAll() else db.income().observe(userId)
+    val expenses: Flow<List<Expense>> = if (viewAll) db.expense().observeAll() else db.expense().observe(userId)
+    val debts: Flow<List<Debt>> = if (viewAll) db.debt().observeAll() else db.debt().observe(userId)
     val audit: Flow<List<AuditLog>> = db.audit().observe(userId)
 
-    suspend fun incomesValue(): List<Income> = db.income().observe(userId).first()
-    suspend fun expensesValue(): List<Expense> = db.expense().observe(userId).first()
-    suspend fun debtsValue(): List<Debt> = db.debt().observe(userId).first()
+    suspend fun incomesValue(): List<Income> = incomes.first()
+    suspend fun expensesValue(): List<Expense> = expenses.first()
+    suspend fun debtsValue(): List<Debt> = debts.first()
 
     suspend fun saveIncome(value: Income) = write("upsert","income",value.id,value) { db.income().upsert(value) }
     suspend fun saveExpense(value: Expense) = write("upsert","expense",value.id,value) { db.expense().upsert(value) }

@@ -29,6 +29,7 @@ create table if not exists public.debt_monthly_payments (id uuid primary key def
 create table if not exists public.audit_logs (id uuid primary key default uuid_generate_v4(), user_id uuid references auth.users(id) on delete set null, action text not null, record_type text, record_id uuid, old_value jsonb, new_value jsonb, timestamp timestamptz default now(), created_at timestamptz default now());
 create table if not exists public.app_settings (user_id uuid primary key references auth.users(id) on delete cascade, dark_theme boolean default false, currency text default 'PHP', updated_at timestamptz default now());
 create or replace function public.is_admin() returns boolean language sql stable security definer set search_path = public as $$ select exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') $$;
+create or replace function public.has_permission(required_permission text) returns boolean language sql stable security definer set search_path = public as $$ select public.is_admin() or exists (select 1 from public.user_permissions where user_id = auth.uid() and permission = required_permission) $$;
 -- Older installations may have a smaller debts table. Keep this migration additive
 -- so existing data survives while the current client can use the full model.
 alter table public.debts add column if not exists user_id uuid references auth.users(id) on delete cascade;
@@ -83,10 +84,10 @@ end $$;
 create policy "profiles own rows" on public.profiles for all using (auth.uid() = id or public.is_admin()) with check (auth.uid() = id or public.is_admin());
 create policy "permissions own rows" on public.user_permissions for all using (auth.uid() = user_id or public.is_admin()) with check (public.is_admin());
 create policy "categories own rows" on public.categories for all using (auth.uid() = user_id or public.is_admin()) with check (auth.uid() = user_id or public.is_admin());
-create policy "income own rows" on public.income for all using (auth.uid() = user_id or public.is_admin()) with check (auth.uid() = user_id or public.is_admin());
-create policy "expenses own rows" on public.expenses for all using (auth.uid() = user_id or public.is_admin()) with check (auth.uid() = user_id or public.is_admin());
-create policy "debts own rows" on public.debts for all using (auth.uid() = user_id or public.is_admin()) with check (auth.uid() = user_id or public.is_admin());
-create policy "payments own rows" on public.debt_monthly_payments for all using (auth.uid() = user_id or public.is_admin()) with check (auth.uid() = user_id or public.is_admin());
+create policy "income own rows" on public.income for all using (auth.uid() = user_id or public.has_permission('view_all_records')) with check (auth.uid() = user_id or public.is_admin());
+create policy "expenses own rows" on public.expenses for all using (auth.uid() = user_id or public.has_permission('view_all_records')) with check (auth.uid() = user_id or public.is_admin());
+create policy "debts own rows" on public.debts for all using (auth.uid() = user_id or public.has_permission('view_all_records')) with check (auth.uid() = user_id or public.is_admin());
+create policy "payments own rows" on public.debt_monthly_payments for all using (auth.uid() = user_id or public.has_permission('view_all_records')) with check (auth.uid() = user_id or public.is_admin());
 create policy "audit own rows" on public.audit_logs for select using (auth.uid() = user_id or public.is_admin());
 create policy "audit insert own rows" on public.audit_logs for insert with check (auth.uid() = user_id);
 create policy "settings own rows" on public.app_settings for all using (auth.uid() = user_id or public.is_admin()) with check (auth.uid() = user_id or public.is_admin());
