@@ -280,9 +280,9 @@ class MainActivity : AppCompatActivity() {
             menu.addView(item)
         }
         return ScrollView(this).apply {
-            fillViewport = true
+            setFillViewport(true)
             setBackgroundColor(drawerBackground)
-            addView(menu, ScrollView.LayoutParams(-1, -1))
+            addView(menu)
         }
     }
 
