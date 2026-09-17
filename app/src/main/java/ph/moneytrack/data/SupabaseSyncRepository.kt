@@ -4,57 +4,59 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 class SessionStore(context: Context) {
     private val prefs = context.getSharedPreferences("moneytrack.session", Context.MODE_PRIVATE)
     var accessToken: String?
         get() = prefs.getString("access_token", null)
-        set(value) { prefs.edit().putString("access_token", value).apply() }
+        set(value) { if (value == null) prefs.edit().remove("access_token").apply() else prefs.edit().putString("access_token", value).apply() }
+    var userId: String?
+        get() = prefs.getString("user_id", null)
+        set(value) { if (value == null) prefs.edit().remove("user_id").apply() else prefs.edit().putString("user_id", value).apply() }
     fun clear() { prefs.edit().clear().apply() }
 }
 
 class SupabaseSyncRepository(
-    private val baseUrl: String,
-    private val apiKey: String,
-    private val session: SessionStore,
+    private val baseUrl: String, private val apiKey: String, private val session: SessionStore,
     private val client: OkHttpClient = OkHttpClient()
 ) {
     suspend fun upload(item: SyncQueue): Boolean = withContext(Dispatchers.IO) {
         val token = session.accessToken ?: return@withContext false
         val table = when (item.recordType) {
-            "income" -> "income"
-            "expense" -> "expenses"
-            "debt" -> "debts"
-            "debt_monthly_payment" -> "debt_monthly_payments"
-            else -> return@withContext false
+            "income" -> "income"; "expense" -> "expenses"; "debt" -> "debts"
+            "debt_monthly_payment" -> "debt_monthly_payments"; else -> return@withContext false
         }
-        val deleting = item.operation == "delete"
-        val request = Request.Builder()
-            .url("$baseUrl/rest/v1/$table" + if (deleting) "?id=eq.${item.recordId}" else "")
-            .addHeader("apikey", apiKey)
-            .addHeader("Authorization", "Bearer $token")
+        // All local changes are soft deletes/upserts. Keeping one upsert path means
+        // deleted rows remain available for audit and can synchronize safely.
+        val method = "POST"
+        val query = "?on_conflict=id"
+        val request = Request.Builder().url(baseUrl.trimEnd('/') + "/rest/v1/$table$query")
+            .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer $token")
             .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
             .addHeader("Content-Type", "application/json")
-            .method(if (deleting) "PATCH" else "POST", item.payload.toRequestBody("application/json".toMediaType()))
+            .method(method, item.payload.toRequestBody("application/json".toMediaType()))
             .build()
         repeat(3) { attempt ->
             try {
-                client.newCall(request).execute().use { if (it.isSuccessful) return@withContext true }
+                client.newCall(request).execute().use {
+                    if (it.isSuccessful) return@withContext true
+                    if (it.code !in listOf(408, 425, 429) && it.code < 500) return@withContext false
+                }
             } catch (_: IOException) {
                 if (attempt == 2) return@withContext false
             }
-            Thread.sleep((attempt + 1) * 250L)
+            delay((attempt + 1) * 250L)
         }
         false
     }
@@ -62,33 +64,74 @@ class SupabaseSyncRepository(
     suspend fun pull(table: String, updatedAfter: Long = 0L): String = withContext(Dispatchers.IO) {
         val token = session.accessToken ?: throw IOException("No authenticated Supabase session")
         val request = Request.Builder()
-            .url("$baseUrl/rest/v1/$table?updated_at=gt.${updatedAfter / 1000}")
-            .addHeader("apikey", apiKey)
-            .addHeader("Authorization", "Bearer $token")
-            .get()
-            .build()
+            .url(baseUrl.trimEnd('/') + "/rest/v1/$table?updated_at=gt.${java.net.URLEncoder.encode(iso(updatedAfter), "UTF-8")}&order=updated_at.asc")
+            .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer $token")
+            .addHeader("Accept", "application/json").get().build()
         client.newCall(request).execute().use {
             if (!it.isSuccessful) throw IOException("Pull failed ${it.code}")
             it.body?.string().orEmpty()
         }
     }
+
+    suspend fun pullAll(db: FinanceDatabase, userId: String, updatedAfter: Long = 0L) {
+        listOf("income", "expenses", "debts", "debt_monthly_payments").forEach { table ->
+            applyRows(db, userId, table, JSONArray(pull(table, updatedAfter)))
+        }
+    }
+
+    private suspend fun applyRows(db: FinanceDatabase, userId: String, table: String, rows: JSONArray) {
+        for (i in 0 until rows.length()) {
+            val row = rows.optJSONObject(i) ?: continue
+            if (row.optString("user_id") != userId) continue
+            val at = millis(row, "updated_at")
+            when (table) {
+                "income" -> {
+                    val value = Income(row.optString("id"), userId, row.optString("title"), cents(row,"amount"), row.optString("occurred_on"), nullable(row,"category"), nullable(row,"notes"), at, row.optBoolean("deleted"))
+                    if ((db.income().get(value.id, userId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.income().upsert(value)
+                }
+                "expenses" -> {
+                    val value = Expense(row.optString("id"), userId, row.optString("title"), cents(row,"amount"), row.optString("occurred_on"), nullable(row,"category"), nullable(row,"notes"), at, row.optBoolean("deleted"))
+                    if ((db.expense().get(value.id, userId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.expense().upsert(value)
+                }
+                "debts" -> {
+                    val value = Debt(row.optString("id"), userId, row.optString("person"), cents(row,"principal_amount"), row.optDouble("interest_rate"), row.optString("interest_type","flat"), row.optInt("number_of_months",1), row.optString("start_date"), nullable(row,"due_date"), optionalCents(row,"monthly_expected_payment"), optionalCents(row,"total_payable"), nullable(row,"notes"), row.optString("status","active"), at, row.optBoolean("deleted"))
+                    if ((db.debt().get(value.id, userId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.debt().upsert(value)
+                }
+                "debt_monthly_payments" -> {
+                    val value = DebtMonthlyPayment(row.optString("id"), row.optString("debt_id"), userId, row.optString("payment_month"), cents(row,"amount"), row.optString("status","unpaid"), nullable(row,"notes"), at, row.optBoolean("deleted"))
+                    if ((db.payment().get(value.id, userId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.payment().upsert(value)
+                }
+            }
+        }
+    }
+    private fun nullable(row: JSONObject, key: String): String? = if (row.isNull(key)) null else row.optString(key)
+    private fun cents(row: JSONObject, key: String): Long = Math.round(row.optDouble(key, 0.0) * 100.0)
+    private fun optionalCents(row: JSONObject, key: String): Long? = if (!row.has(key) || row.isNull(key)) null else cents(row,key)
+    private fun millis(row: JSONObject, key: String): Long {
+        val value = row.opt(key)
+        if (value is Number) return if (value.toLong() < 100000000000L) value.toLong() * 1000 else value.toLong()
+        val raw = value.toString()
+        var normalized = if (raw.endsWith("Z")) raw.substring(0, raw.length - 1) + "+0000" else raw
+        if (normalized.length >= 6 && normalized[normalized.length - 3] == ':') {
+            normalized = normalized.substring(0, normalized.length - 3) + normalized.substring(normalized.length - 2)
+        }
+        return listOf("yyyy-MM-dd'T'HH:mm:ss.SSSZ", "yyyy-MM-dd'T'HH:mm:ssZ").asSequence()
+            .mapNotNull { pattern -> runCatching { SimpleDateFormat(pattern, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(normalized)?.time }.getOrNull() }
+            .firstOrNull() ?: 0L
+    }
+    private fun iso(time: Long): String = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+        .apply { timeZone = TimeZone.getTimeZone("UTC") }.format(java.util.Date(time))
 }
 
 class ConnectivitySyncTrigger(context: Context, private val drain: suspend () -> Unit) {
     private val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private val callbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            callbackScope.launch { drain() }
-        }
+        override fun onAvailable(network: Network) { callbackScope.launch { drain() } }
     }
-    fun start() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) manager.registerDefaultNetworkCallback(callback)
-    }
+    fun start() { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) manager.registerDefaultNetworkCallback(callback) }
     fun stop() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            try { manager.unregisterNetworkCallback(callback) } catch (_: IllegalArgumentException) { }
-        }
-        callbackScope.coroutineContext.cancel()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) try { manager.unregisterNetworkCallback(callback) } catch (_: IllegalArgumentException) { }
+        callbackScope.cancel()
     }
 }

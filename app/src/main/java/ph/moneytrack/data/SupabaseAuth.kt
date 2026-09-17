@@ -18,6 +18,15 @@ class SupabaseAuth(
     private val publishableKey: String,
     private val client: OkHttpClient = OkHttpClient()
 ) {
+    companion object {
+        fun accessToken(body: String): String? =
+            runCatching { org.json.JSONObject(body).optString("access_token", "").takeIf { it.isNotEmpty() } }.getOrNull()
+
+        fun userId(body: String): String? =
+            runCatching {
+                org.json.JSONObject(body).optJSONObject("user")?.optString("id", "")?.takeIf { it.isNotEmpty() }
+            }.getOrNull()
+    }
     suspend fun signIn(email: String, password: String): AuthResult = request(
         "/auth/v1/token?grant_type=password",
         "{\"email\":\"${escape(email)}\",\"password\":\"${escape(password)}\"}"

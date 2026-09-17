@@ -33,12 +33,13 @@ class MainActivity : AppCompatActivity() {
     private var accent = Color.rgb(35, 105, 175)
     private val permission: LocalPermission
         get() = LocalPermission(runCatching { LocalRole.valueOf(getSharedPreferences("moneytrack", 0).getString("role", "ADMIN") ?: "ADMIN") }.getOrDefault(LocalRole.ADMIN))
-    private val userId by lazy {
+    private val userId: String
+        get() {
         val p = getSharedPreferences("moneytrack", 0)
-        p.getString("user_id", null) ?: UUID.randomUUID().toString().also {
+        return p.getString("user_id", null) ?: UUID.randomUUID().toString().also {
             p.edit().putString("user_id", it).apply()
         }
-    }
+        }
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -70,9 +71,15 @@ class MainActivity : AppCompatActivity() {
             scope.launch {
                 when (val result = auth.signIn(email.text.toString(), password.text.toString())) {
                     is AuthResult.Success -> {
-                        val token = org.json.JSONObject(result.body).optString("access_token", "")
-                        if (token.isNotEmpty()) SessionStore(this@MainActivity).accessToken = token
-                        enterApp()
+                        val session = SessionStore(this@MainActivity)
+                        SupabaseAuth.accessToken(result.body)?.let { session.accessToken = it }
+                        SupabaseAuth.userId(result.body)?.let {
+                            session.userId = it
+                            getSharedPreferences("moneytrack", 0).edit().putString("user_id", it).apply()
+                        }
+                        if (session.accessToken != null) enterApp() else {
+                            message.text = "Sign in did not return a session"; signIn.isEnabled = true
+                        }
                     }
                     is AuthResult.Failure -> { message.text = result.error.message ?: "Sign in failed"; signIn.isEnabled = true }
                 }
@@ -82,7 +89,12 @@ class MainActivity : AppCompatActivity() {
         signUp.setOnClickListener {
             scope.launch {
                 when (val result = auth.signUp(email.text.toString(), password.text.toString())) {
-                    is AuthResult.Success -> message.text = "Account created. Check your email, then sign in."
+                    is AuthResult.Success -> {
+                        val session = SessionStore(this@MainActivity)
+                        SupabaseAuth.accessToken(result.body)?.let { session.accessToken = it }
+                        SupabaseAuth.userId(result.body)?.let { session.userId = it; getSharedPreferences("moneytrack", 0).edit().putString("user_id", it).apply() }
+                        if (session.accessToken != null) enterApp() else message.text = "Account created. Check your email, then sign in."
+                    }
                     is AuthResult.Failure -> message.text = result.error.message ?: "Sign up failed"
                 }
             }
@@ -103,12 +115,18 @@ class MainActivity : AppCompatActivity() {
         )
         val processor = SyncProcessor(FinanceDatabase.create(this))
         syncTrigger = ConnectivitySyncTrigger(this) {
-            processor.drain(uploader = { item -> syncRepository.upload(item) })
+            processor.synchronize(
+                uploader = { item -> syncRepository.upload(item) },
+                puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
+            )
         }
         try {
             syncTrigger?.start()
             scope.launch(Dispatchers.IO) {
-                processor.drain(uploader = { item -> syncRepository.upload(item) })
+                processor.synchronize(
+                    uploader = { item -> syncRepository.upload(item) },
+                    puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
+                )
             }
         } catch (_: RuntimeException) {
             syncTrigger = null
