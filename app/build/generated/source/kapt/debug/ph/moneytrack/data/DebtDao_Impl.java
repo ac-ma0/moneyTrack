@@ -1,6 +1,7 @@
 package ph.moneytrack.data;
 
 import android.database.Cursor;
+import android.os.CancellationSignal;
 import androidx.room.CoroutinesRoom;
 import androidx.room.EntityInsertionAdapter;
 import androidx.room.RoomDatabase;
@@ -329,6 +330,245 @@ public final class DebtDao_Impl implements DebtDao {
         _statement.release();
       }
     });
+  }
+
+  @Override
+  public Flow<List<Debt>> observeAll() {
+    final String _sql = "SELECT * FROM debts WHERE deleted=0 ORDER BY startDate DESC";
+    final RoomSQLiteQuery _statement = RoomSQLiteQuery.acquire(_sql, 0);
+    return CoroutinesRoom.createFlow(__db, false, new String[]{"debts"}, new Callable<List<Debt>>() {
+      @Override
+      public List<Debt> call() throws Exception {
+        final Cursor _cursor = DBUtil.query(__db, _statement, false, null);
+        try {
+          final int _cursorIndexOfId = CursorUtil.getColumnIndexOrThrow(_cursor, "id");
+          final int _cursorIndexOfUserId = CursorUtil.getColumnIndexOrThrow(_cursor, "userId");
+          final int _cursorIndexOfPerson = CursorUtil.getColumnIndexOrThrow(_cursor, "person");
+          final int _cursorIndexOfPrincipalAmount = CursorUtil.getColumnIndexOrThrow(_cursor, "principalAmount");
+          final int _cursorIndexOfInterestRate = CursorUtil.getColumnIndexOrThrow(_cursor, "interestRate");
+          final int _cursorIndexOfInterestType = CursorUtil.getColumnIndexOrThrow(_cursor, "interestType");
+          final int _cursorIndexOfNumberOfMonths = CursorUtil.getColumnIndexOrThrow(_cursor, "numberOfMonths");
+          final int _cursorIndexOfStartDate = CursorUtil.getColumnIndexOrThrow(_cursor, "startDate");
+          final int _cursorIndexOfDueDate = CursorUtil.getColumnIndexOrThrow(_cursor, "dueDate");
+          final int _cursorIndexOfMonthlyExpectedPayment = CursorUtil.getColumnIndexOrThrow(_cursor, "monthlyExpectedPayment");
+          final int _cursorIndexOfTotalPayable = CursorUtil.getColumnIndexOrThrow(_cursor, "totalPayable");
+          final int _cursorIndexOfNotes = CursorUtil.getColumnIndexOrThrow(_cursor, "notes");
+          final int _cursorIndexOfStatus = CursorUtil.getColumnIndexOrThrow(_cursor, "status");
+          final int _cursorIndexOfUpdatedAt = CursorUtil.getColumnIndexOrThrow(_cursor, "updatedAt");
+          final int _cursorIndexOfDeleted = CursorUtil.getColumnIndexOrThrow(_cursor, "deleted");
+          final List<Debt> _result = new ArrayList<Debt>(_cursor.getCount());
+          while(_cursor.moveToNext()) {
+            final Debt _item;
+            final String _tmpId;
+            if (_cursor.isNull(_cursorIndexOfId)) {
+              _tmpId = null;
+            } else {
+              _tmpId = _cursor.getString(_cursorIndexOfId);
+            }
+            final String _tmpUserId;
+            if (_cursor.isNull(_cursorIndexOfUserId)) {
+              _tmpUserId = null;
+            } else {
+              _tmpUserId = _cursor.getString(_cursorIndexOfUserId);
+            }
+            final String _tmpPerson;
+            if (_cursor.isNull(_cursorIndexOfPerson)) {
+              _tmpPerson = null;
+            } else {
+              _tmpPerson = _cursor.getString(_cursorIndexOfPerson);
+            }
+            final long _tmpPrincipalAmount;
+            _tmpPrincipalAmount = _cursor.getLong(_cursorIndexOfPrincipalAmount);
+            final double _tmpInterestRate;
+            _tmpInterestRate = _cursor.getDouble(_cursorIndexOfInterestRate);
+            final String _tmpInterestType;
+            if (_cursor.isNull(_cursorIndexOfInterestType)) {
+              _tmpInterestType = null;
+            } else {
+              _tmpInterestType = _cursor.getString(_cursorIndexOfInterestType);
+            }
+            final int _tmpNumberOfMonths;
+            _tmpNumberOfMonths = _cursor.getInt(_cursorIndexOfNumberOfMonths);
+            final String _tmpStartDate;
+            if (_cursor.isNull(_cursorIndexOfStartDate)) {
+              _tmpStartDate = null;
+            } else {
+              _tmpStartDate = _cursor.getString(_cursorIndexOfStartDate);
+            }
+            final String _tmpDueDate;
+            if (_cursor.isNull(_cursorIndexOfDueDate)) {
+              _tmpDueDate = null;
+            } else {
+              _tmpDueDate = _cursor.getString(_cursorIndexOfDueDate);
+            }
+            final Long _tmpMonthlyExpectedPayment;
+            if (_cursor.isNull(_cursorIndexOfMonthlyExpectedPayment)) {
+              _tmpMonthlyExpectedPayment = null;
+            } else {
+              _tmpMonthlyExpectedPayment = _cursor.getLong(_cursorIndexOfMonthlyExpectedPayment);
+            }
+            final Long _tmpTotalPayable;
+            if (_cursor.isNull(_cursorIndexOfTotalPayable)) {
+              _tmpTotalPayable = null;
+            } else {
+              _tmpTotalPayable = _cursor.getLong(_cursorIndexOfTotalPayable);
+            }
+            final String _tmpNotes;
+            if (_cursor.isNull(_cursorIndexOfNotes)) {
+              _tmpNotes = null;
+            } else {
+              _tmpNotes = _cursor.getString(_cursorIndexOfNotes);
+            }
+            final String _tmpStatus;
+            if (_cursor.isNull(_cursorIndexOfStatus)) {
+              _tmpStatus = null;
+            } else {
+              _tmpStatus = _cursor.getString(_cursorIndexOfStatus);
+            }
+            final long _tmpUpdatedAt;
+            _tmpUpdatedAt = _cursor.getLong(_cursorIndexOfUpdatedAt);
+            final boolean _tmpDeleted;
+            final int _tmp;
+            _tmp = _cursor.getInt(_cursorIndexOfDeleted);
+            _tmpDeleted = _tmp != 0;
+            _item = new Debt(_tmpId,_tmpUserId,_tmpPerson,_tmpPrincipalAmount,_tmpInterestRate,_tmpInterestType,_tmpNumberOfMonths,_tmpStartDate,_tmpDueDate,_tmpMonthlyExpectedPayment,_tmpTotalPayable,_tmpNotes,_tmpStatus,_tmpUpdatedAt,_tmpDeleted);
+            _result.add(_item);
+          }
+          return _result;
+        } finally {
+          _cursor.close();
+        }
+      }
+
+      @Override
+      protected void finalize() {
+        _statement.release();
+      }
+    });
+  }
+
+  @Override
+  public Object get(final String id, final String userId, final Continuation<? super Debt> p2) {
+    final String _sql = "SELECT * FROM debts WHERE id=? AND userId=? LIMIT 1";
+    final RoomSQLiteQuery _statement = RoomSQLiteQuery.acquire(_sql, 2);
+    int _argIndex = 1;
+    if (id == null) {
+      _statement.bindNull(_argIndex);
+    } else {
+      _statement.bindString(_argIndex, id);
+    }
+    _argIndex = 2;
+    if (userId == null) {
+      _statement.bindNull(_argIndex);
+    } else {
+      _statement.bindString(_argIndex, userId);
+    }
+    final CancellationSignal _cancellationSignal = DBUtil.createCancellationSignal();
+    return CoroutinesRoom.execute(__db, false, _cancellationSignal, new Callable<Debt>() {
+      @Override
+      public Debt call() throws Exception {
+        final Cursor _cursor = DBUtil.query(__db, _statement, false, null);
+        try {
+          final int _cursorIndexOfId = CursorUtil.getColumnIndexOrThrow(_cursor, "id");
+          final int _cursorIndexOfUserId = CursorUtil.getColumnIndexOrThrow(_cursor, "userId");
+          final int _cursorIndexOfPerson = CursorUtil.getColumnIndexOrThrow(_cursor, "person");
+          final int _cursorIndexOfPrincipalAmount = CursorUtil.getColumnIndexOrThrow(_cursor, "principalAmount");
+          final int _cursorIndexOfInterestRate = CursorUtil.getColumnIndexOrThrow(_cursor, "interestRate");
+          final int _cursorIndexOfInterestType = CursorUtil.getColumnIndexOrThrow(_cursor, "interestType");
+          final int _cursorIndexOfNumberOfMonths = CursorUtil.getColumnIndexOrThrow(_cursor, "numberOfMonths");
+          final int _cursorIndexOfStartDate = CursorUtil.getColumnIndexOrThrow(_cursor, "startDate");
+          final int _cursorIndexOfDueDate = CursorUtil.getColumnIndexOrThrow(_cursor, "dueDate");
+          final int _cursorIndexOfMonthlyExpectedPayment = CursorUtil.getColumnIndexOrThrow(_cursor, "monthlyExpectedPayment");
+          final int _cursorIndexOfTotalPayable = CursorUtil.getColumnIndexOrThrow(_cursor, "totalPayable");
+          final int _cursorIndexOfNotes = CursorUtil.getColumnIndexOrThrow(_cursor, "notes");
+          final int _cursorIndexOfStatus = CursorUtil.getColumnIndexOrThrow(_cursor, "status");
+          final int _cursorIndexOfUpdatedAt = CursorUtil.getColumnIndexOrThrow(_cursor, "updatedAt");
+          final int _cursorIndexOfDeleted = CursorUtil.getColumnIndexOrThrow(_cursor, "deleted");
+          final Debt _result;
+          if(_cursor.moveToFirst()) {
+            final String _tmpId;
+            if (_cursor.isNull(_cursorIndexOfId)) {
+              _tmpId = null;
+            } else {
+              _tmpId = _cursor.getString(_cursorIndexOfId);
+            }
+            final String _tmpUserId;
+            if (_cursor.isNull(_cursorIndexOfUserId)) {
+              _tmpUserId = null;
+            } else {
+              _tmpUserId = _cursor.getString(_cursorIndexOfUserId);
+            }
+            final String _tmpPerson;
+            if (_cursor.isNull(_cursorIndexOfPerson)) {
+              _tmpPerson = null;
+            } else {
+              _tmpPerson = _cursor.getString(_cursorIndexOfPerson);
+            }
+            final long _tmpPrincipalAmount;
+            _tmpPrincipalAmount = _cursor.getLong(_cursorIndexOfPrincipalAmount);
+            final double _tmpInterestRate;
+            _tmpInterestRate = _cursor.getDouble(_cursorIndexOfInterestRate);
+            final String _tmpInterestType;
+            if (_cursor.isNull(_cursorIndexOfInterestType)) {
+              _tmpInterestType = null;
+            } else {
+              _tmpInterestType = _cursor.getString(_cursorIndexOfInterestType);
+            }
+            final int _tmpNumberOfMonths;
+            _tmpNumberOfMonths = _cursor.getInt(_cursorIndexOfNumberOfMonths);
+            final String _tmpStartDate;
+            if (_cursor.isNull(_cursorIndexOfStartDate)) {
+              _tmpStartDate = null;
+            } else {
+              _tmpStartDate = _cursor.getString(_cursorIndexOfStartDate);
+            }
+            final String _tmpDueDate;
+            if (_cursor.isNull(_cursorIndexOfDueDate)) {
+              _tmpDueDate = null;
+            } else {
+              _tmpDueDate = _cursor.getString(_cursorIndexOfDueDate);
+            }
+            final Long _tmpMonthlyExpectedPayment;
+            if (_cursor.isNull(_cursorIndexOfMonthlyExpectedPayment)) {
+              _tmpMonthlyExpectedPayment = null;
+            } else {
+              _tmpMonthlyExpectedPayment = _cursor.getLong(_cursorIndexOfMonthlyExpectedPayment);
+            }
+            final Long _tmpTotalPayable;
+            if (_cursor.isNull(_cursorIndexOfTotalPayable)) {
+              _tmpTotalPayable = null;
+            } else {
+              _tmpTotalPayable = _cursor.getLong(_cursorIndexOfTotalPayable);
+            }
+            final String _tmpNotes;
+            if (_cursor.isNull(_cursorIndexOfNotes)) {
+              _tmpNotes = null;
+            } else {
+              _tmpNotes = _cursor.getString(_cursorIndexOfNotes);
+            }
+            final String _tmpStatus;
+            if (_cursor.isNull(_cursorIndexOfStatus)) {
+              _tmpStatus = null;
+            } else {
+              _tmpStatus = _cursor.getString(_cursorIndexOfStatus);
+            }
+            final long _tmpUpdatedAt;
+            _tmpUpdatedAt = _cursor.getLong(_cursorIndexOfUpdatedAt);
+            final boolean _tmpDeleted;
+            final int _tmp;
+            _tmp = _cursor.getInt(_cursorIndexOfDeleted);
+            _tmpDeleted = _tmp != 0;
+            _result = new Debt(_tmpId,_tmpUserId,_tmpPerson,_tmpPrincipalAmount,_tmpInterestRate,_tmpInterestType,_tmpNumberOfMonths,_tmpStartDate,_tmpDueDate,_tmpMonthlyExpectedPayment,_tmpTotalPayable,_tmpNotes,_tmpStatus,_tmpUpdatedAt,_tmpDeleted);
+          } else {
+            _result = null;
+          }
+          return _result;
+        } finally {
+          _cursor.close();
+          _statement.release();
+        }
+      }
+    }, p2);
   }
 
   public static List<Class<?>> getRequiredConverters() {
