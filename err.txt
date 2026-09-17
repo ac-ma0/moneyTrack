@@ -2,14 +2,15 @@ server is running...
 ******/dbclient: Caution, skipping hostkey check for localhost
 > Configure project :app
 WARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is experimental.
-> Task :app:preBuild UP-TO-DATE> Task :app:preDebugBuild UP-TO-DATE
-> Task :app:generateDebugBuildConfig UP-TO-DATE
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
 > Task :app:compileDebugAidl NO-SOURCE
+> Task :app:generateDebugBuildConfig UP-TO-DATE
 > Task :app:compileDebugRenderscript NO-SOURCE
 > Task :app:generateDebugResValues UP-TO-DATE
 > Task :app:generateDebugResources UP-TO-DATE
-> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
 > Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
 > Task :app:extractDeepLinksDebug UP-TO-DATE> Task :app:processDebugManifest UP-TO-DATE
 > Task :app:processDebugResources UP-TO-DATE
 > Task :app:kaptGenerateStubsDebugKotlin UP-TO-DATE
@@ -17,9 +18,6 @@ WARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is e
 > Task :app:compileDebugKotlin
 e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/data/SupabaseSyncRepository.kt: (141, 5): A 'return' expression required in a function with a block body ('{...}')
 > Task :app:compileDebugKotlin FAILED
-10 actionable tasks: 1 executed, 9 up-to-dateFAILURE: Build failed with an exception.* What went wrong:Execution failed for task ':app:compileDebugKotlin'.
-> Compilation error. See log for more details
-* Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.
-* Get more help at https://help.gradle.org
-BUILD FAILED in 14s
+FAILURE: Build failed with an exception.
+* What went wrong:Execution failed for task ':app:compileDebugKotlin'.> Compilation error. See log for more details* Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.* Get more help at https://help.gradle.orgBUILD FAILED in 15s10 actionable tasks: 1 executed, 9 up-to-date
 Failed: Command failed with: 1
