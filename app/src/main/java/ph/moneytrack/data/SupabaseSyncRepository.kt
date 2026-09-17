@@ -30,6 +30,12 @@ class SessionStore(context: Context) {
     var role: String
         get() = prefs.getString("role", "user") ?: "user"
         set(value) { prefs.edit().putString("role", value).apply() }
+    var email: String?
+        get() = prefs.getString("email", null)
+        set(value) { if (value == null) prefs.edit().remove("email").apply() else prefs.edit().putString("email", value).apply() }
+    var fullName: String?
+        get() = prefs.getString("full_name", null)
+        set(value) { if (value == null) prefs.edit().remove("full_name").apply() else prefs.edit().putString("full_name", value).apply() }
     fun setPermissions(values: Set<String>) {
         prefs.edit().putStringSet("permissions", values).apply()
     }
@@ -50,7 +56,7 @@ class SupabaseSyncRepository(
         val token = session.accessToken ?: return@withContext false
         val uid = session.userId ?: return@withContext false
         val profileRequest = Request.Builder()
-            .url(baseUrl.trimEnd('/') + "/rest/v1/profiles?id=eq.$uid&select=role")
+            .url(baseUrl.trimEnd('/') + "/rest/v1/profiles?id=eq.$uid&select=role,full_name")
             .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer " + token).get().build()
         val permissionRequest = Request.Builder()
             .url(baseUrl.trimEnd('/') + "/rest/v1/user_permissions?user_id=eq.$uid&select=permission")
@@ -59,7 +65,11 @@ class SupabaseSyncRepository(
             client.newCall(profileRequest).execute().use { response ->
                 if (!response.isSuccessful) return@withContext false
                 val rows = JSONArray(response.body?.string().orEmpty())
-                if (rows.length() > 0) session.role = rows.optJSONObject(0)?.optString("role", "user") ?: "user"
+                if (rows.length() > 0) {
+                    val profile = rows.optJSONObject(0)
+                    session.role = profile?.optString("role", "user") ?: "user"
+                    session.fullName = profile?.optString("full_name", "")?.takeIf { it.isNotBlank() }
+                }
             }
 
             client.newCall(permissionRequest).execute().use { response ->
@@ -106,6 +116,26 @@ class SupabaseSyncRepository(
         client.newCall(request).execute().use { it.isSuccessful }
     }
 
+    suspend fun updateProfileName(userId: String, name: String): Boolean = updateProfile(userId, name, null)
+
+    suspend fun updateProfile(userId: String, name: String?, role: String?): Boolean = withContext(Dispatchers.IO) {
+        val token = session.accessToken ?: return@withContext false
+        val payload = JSONObject().put("id", userId)
+        if (name == null) payload.put("full_name", JSONObject.NULL) else payload.put("full_name", name)
+        if (role != null) payload.put("role", role)
+        val request = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/rest/v1/profiles?on_conflict=id")
+            .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer " + token)
+            .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+            .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) lastError = "Profile update failed (${response.code})"
+            response.isSuccessful
+        }
+    }
+
+    suspend fun clearProfileName(userId: String): Boolean = updateProfile(userId, null, null)
+
     suspend fun setPermission(userId: String, permission: String, granted: Boolean): Boolean = withContext(Dispatchers.IO) {
         val token = session.accessToken ?: return@withContext false
         val encodedPermission = java.net.URLEncoder.encode(permission, "UTF-8")
@@ -120,19 +150,41 @@ class SupabaseSyncRepository(
         client.newCall(request).execute().use { it.isSuccessful }
     }
 
-    suspend fun createUser(email: String, password: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun fetchPermissions(userId: String): Set<String> = withContext(Dispatchers.IO) {
+        val token = session.accessToken ?: return@withContext emptySet()
+        val request = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/rest/v1/user_permissions?user_id=eq.$userId&select=permission")
+            .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer " + token).get().build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@withContext emptySet()
+            val rows = JSONArray(response.body?.string().orEmpty())
+            val result = mutableSetOf<String>()
+            for (i in 0 until rows.length()) rows.optJSONObject(i)?.optString("permission")?.let { result.add(it) }
+            result
+        }
+    }
+
+    suspend fun createUser(email: String, password: String, name: String = ""): Boolean = withContext(Dispatchers.IO) {
         val payload = JSONObject().put("email", email).put("password", password).toString()
         val request = Request.Builder()
             .url(baseUrl.trimEnd('/') + "/auth/v1/signup")
             .addHeader("apikey", apiKey).addHeader("Content-Type", "application/json")
             .post(payload.toRequestBody("application/json".toMediaType())).build()
         client.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                lastError = "User creation failed (${response.code}): ${response.body?.string().orEmpty().take(160)}"
+                lastError = "User creation failed (${response.code}): ${responseBody.take(160)}"
+            }
+            if (response.isSuccessful && name.isNotBlank()) {
+                val newId = runCatching { JSONObject(responseBody).optJSONObject("user")?.optString("id", "") }.getOrNull().orEmpty()
+                if (newId.isNotBlank()) updateProfile(newId, name, "user")
             }
             response.isSuccessful
         }
     }
+
+    suspend fun createUserProfile(userId: String, name: String, role: String = "user"): Boolean =
+        updateProfile(userId, name, role)
 
     suspend fun refreshSession(): Boolean = withContext(Dispatchers.IO) {
         val refresh = session.refreshToken ?: return@withContext false
