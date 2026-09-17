@@ -1,6 +1,7 @@
 package ph.moneytrack
 
 import android.app.AlertDialog
+import android.app.DatePickerDialog
 import android.graphics.Color
 import android.os.Bundle
 import android.text.InputType
@@ -175,10 +176,8 @@ class MainActivity : AppCompatActivity() {
             scope.launch(Dispatchers.IO) {
                 syncRepository.refreshSession()
                 syncRepository.refreshAccessPolicy()
-                if (SessionStore(this@MainActivity).role == "admin" ||
-                    SessionStore(this@MainActivity).permissions().contains("manage_users") ||
-                    SessionStore(this@MainActivity).permissions().contains("view_all_records")) {
-                    cloudUsers = syncRepository.fetchProfiles()
+                if (permission.canManageUsers) {
+                    runCatching { cloudUsers = syncRepository.fetchProfiles() }
                 }
                 withContext(Dispatchers.Main) { reloadRepositoryScope() }
                 syncProcessor.synchronize(
@@ -537,12 +536,17 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("moneytrack", 0)
         if (permission.canManageUsers && cloudUsers.isEmpty()) {
             page.addView(label("Loading Supabase users...", 14f))
-            scope.launch {
+            scope.launch(Dispatchers.IO) {
                 try {
-                    cloudUsers = withContext(Dispatchers.IO) { syncRepository.fetchProfiles() }
-                    render()
+                    val users = syncRepository.fetchProfiles()
+                    withContext(Dispatchers.Main) {
+                        cloudUsers = users
+                        render()
+                    }
                 } catch (error: Exception) {
-                    Toast.makeText(this@MainActivity, error.message ?: "User fetch failed", Toast.LENGTH_LONG).show()
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, error.message ?: "User fetch failed", Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }
@@ -704,7 +708,7 @@ class MainActivity : AppCompatActivity() {
         val title = field("Description"); val amount = field("Amount in PHP").apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         }
-        val date = field("Date (YYYY-MM-DD)").apply { setText(if (existing is Income) existing.occurredOn else if (existing is Expense) existing.occurredOn else today()) }
+        val date = dateField("Date", if (existing is Income) existing.occurredOn else if (existing is Expense) existing.occurredOn else today())
         val category = field("Category"); val notes = field("Notes")
         if (existing is Income) { title.setText(existing.title); amount.setText((existing.amount / 100.0).toString()); category.setText(existing.category ?: ""); notes.setText(existing.notes ?: "") }
         if (existing is Expense) { title.setText(existing.title); amount.setText((existing.amount / 100.0).toString()); category.setText(existing.category ?: ""); notes.setText(existing.notes ?: "") }
@@ -725,7 +729,7 @@ class MainActivity : AppCompatActivity() {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         }
         val rate = field("Interest rate %"); val months = field("Number of months").apply { inputType = InputType.TYPE_CLASS_NUMBER }; val type = field("Interest type: flat, simple, reducing")
-        val due = field("Due date (YYYY-MM-DD)"); val notes = field("Notes")
+        val due = dateField("Due date", existing?.dueDate ?: ""); val notes = field("Notes")
         existing?.let {
             person.setText(it.person); principal.setText((it.principalAmount / 100.0).toString())
             rate.setText(it.interestRate.toString()); type.setText(it.interestType); months.setText(it.numberOfMonths.toString())
@@ -767,7 +771,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun reloadRepositoryScope() {
         val session = SessionStore(this)
-        val canSelectOthers = session.role == "admin" || session.permissions().contains("view_all_records")
+        val canSelectOthers = permission.canManageUsers
         if (!canSelectOthers) selectedUserId = session.userId ?: userId
         repository = FinanceRepository(FinanceDatabase.create(this), selectedUserId ?: userId, false)
         observing = false
@@ -779,12 +783,18 @@ class MainActivity : AppCompatActivity() {
     private fun horizontal() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
     private fun label(value: String, size: Float) = TextView(this).apply { text=value; textSize=size; setTextColor(if (size >= 24f) headingColor else getThemeColor("text", if (dark) Color.LTGRAY else Color.rgb(35,45,58))); setPadding(dp(4), dp(4), dp(4), dp(4)) }
     private fun field(hint: String) = EditText(this).apply { this.hint=hint; setSingleLine(true); setPadding(dp(10), dp(10), dp(10), dp(10)) }
-    private fun button(value: String) = Button(this).apply { text=value; isAllCaps=false; setTextColor(buttonText); setBackgroundColor(buttonBackground); setPadding(dp(6), dp(2), dp(6), dp(2)); minHeight = dp(34) }
-    private fun userSelector(): Spinner {
+    private fun button(value: String) = Button(this).apply { text=value; textSize=12f; isAllCaps=false; setTextColor(buttonText); setBackgroundColor(buttonBackground); setPadding(dp(4), dp(1), dp(4), dp(1)); minHeight = dp(30); minimumHeight = dp(30) }
+    private fun userSelector(): View {
         val session = SessionStore(this)
-        val canSelectOthers = session.role == "admin" || session.permissions().contains("view_all_records")
+        val canSelectOthers = permission.canManageUsers
         val entries = mutableListOf<Pair<String, String>>()
         entries.add((session.userId ?: userId) to (session.fullName ?: session.email ?: "Current user"))
+        if (!canSelectOthers) {
+            return label(entries[0].second, 13f).apply {
+                setPadding(dp(8), dp(4), dp(8), dp(4))
+                setBackgroundColor(dashboardContainer)
+            }
+        }
         if (canSelectOthers) cloudUsers.forEach { entry ->
             val id = entry.first.substringBefore(" •")
             val name = entry.first.substringAfter(" • ", "User")
@@ -805,6 +815,26 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+    private fun dateField(hint: String, initial: String): EditText {
+        val input = field(hint).apply {
+            setText(initial)
+            isFocusable = false
+            isClickable = true
+        }
+        input.setOnClickListener {
+            val calendar = Calendar.getInstance()
+            runCatching {
+                if (input.text.toString().isNotBlank()) {
+                    val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(input.text.toString())
+                    if (parsed != null) calendar.time = parsed
+                }
+            }
+            DatePickerDialog(this, { _, year, month, day ->
+                input.setText(String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, day))
+            }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+        }
+        return input
     }
     private fun card(title: String, value: String, detail: String): LinearLayout {
         val box = vertical().apply { setPadding(dp(16), dp(14), dp(16), dp(14)); setBackgroundColor(dashboardContainer) }
