@@ -1,21 +1,26 @@
 server is running...
 ******/dbclient: Caution, skipping hostkey check for localhost
-> Configure project :appWARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is experimental.
-> Task :app:preBuild UP-TO-DATE
-> Task :app:preDebugBuild UP-TO-DATE
-> Task :app:compileDebugAidl NO-SOURCE> Task :app:generateDebugBuildConfig UP-TO-DATE
-> Task :app:compileDebugRenderscript NO-SOURCE
+> Configure project :app
+WARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is experimental.
+> Task :app:preBuild UP-TO-DATE> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:compileDebugAidl NO-SOURCE
+> Task :app:generateDebugBuildConfig UP-TO-DATE> Task :app:compileDebugRenderscript NO-SOURCE
 > Task :app:generateDebugResValues UP-TO-DATE
 > Task :app:generateDebugResources UP-TO-DATE
 > Task :app:mergeDebugResources UP-TO-DATE
 > Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
-> Task :app:extractDeepLinksDebug UP-TO-DATE> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
 > Task :app:processDebugResources UP-TO-DATE
 > Task :app:kaptGenerateStubsDebugKotlin UP-TO-DATE
 > Task :app:kaptDebugKotlin UP-TO-DATE
-> Task :app:compileDebugKotlin
-e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (283, 13): Unresolved reference: fillViewporte: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (285, 38): Unresolved reference: LayoutParams
-> Task :app:compileDebugKotlin FAILEDFAILURE: Build failed with an exception.* What went wrong:Execution failed for task ':app:compileDebugKotlin'.> Compilation error. See log for more details* Try:
-Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.
-* Get more help at https://help.gradle.orgBUILD FAILED in 17s10 actionable tasks: 1 executed, 9 up-to-date
+> Task :app:compileDebugKotline: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (41, 5): Accidental override: The following declarations have the same JVM signature (setTitleColor(I)V):    fun <set-titleColor>(<set-?>: Int): Unit defined in ph.moneytrack.MainActivity    fun setTitleColor(p0: Int): Unit defined in ph.moneytrack.MainActivitye: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (41, 5): Accidental override: The following declarations have the same JVM signature (getTitleColor()I):    fun <get-titleColor>(): Int defined in ph.moneytrack.MainActivity
+    fun getTitleColor(): Int defined in ph.moneytrack.MainActivity
+> Task :app:compileDebugKotlin FAILED
+FAILURE: Build failed with an exception.
+* What went wrong:
+10 actionable tasks: 1 executed, 9 up-to-date
+Execution failed for task ':app:compileDebugKotlin'.> Compilation error. See log for more details* Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.
+* Get more help at https://help.gradle.org
+BUILD FAILED in 22s
 Failed: Command failed with: 1
