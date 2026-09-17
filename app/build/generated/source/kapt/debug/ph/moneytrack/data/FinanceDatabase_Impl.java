@@ -41,11 +41,11 @@ public final class FinanceDatabase_Impl extends FinanceDatabase {
 
   @Override
   protected SupportSQLiteOpenHelper createOpenHelper(DatabaseConfiguration configuration) {
-    final SupportSQLiteOpenHelper.Callback _openCallback = new RoomOpenHelper(configuration, new RoomOpenHelper.Delegate(1) {
+    final SupportSQLiteOpenHelper.Callback _openCallback = new RoomOpenHelper(configuration, new RoomOpenHelper.Delegate(2) {
       @Override
       public void createAllTables(SupportSQLiteDatabase _db) {
-        _db.execSQL("CREATE TABLE IF NOT EXISTS `income` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `title` TEXT NOT NULL, `amount` INTEGER NOT NULL, `occurredOn` TEXT NOT NULL, `notes` TEXT, `updatedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))");
-        _db.execSQL("CREATE TABLE IF NOT EXISTS `expenses` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `title` TEXT NOT NULL, `amount` INTEGER NOT NULL, `occurredOn` TEXT NOT NULL, `notes` TEXT, `updatedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))");
+        _db.execSQL("CREATE TABLE IF NOT EXISTS `income` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `title` TEXT NOT NULL, `amount` INTEGER NOT NULL, `occurredOn` TEXT NOT NULL, `category` TEXT, `notes` TEXT, `updatedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))");
+        _db.execSQL("CREATE TABLE IF NOT EXISTS `expenses` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `title` TEXT NOT NULL, `amount` INTEGER NOT NULL, `occurredOn` TEXT NOT NULL, `category` TEXT, `notes` TEXT, `updatedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))");
         _db.execSQL("CREATE TABLE IF NOT EXISTS `debts` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `person` TEXT NOT NULL, `principalAmount` INTEGER NOT NULL, `interestRate` REAL NOT NULL, `interestType` TEXT NOT NULL, `numberOfMonths` INTEGER NOT NULL, `startDate` TEXT NOT NULL, `dueDate` TEXT, `monthlyExpectedPayment` INTEGER, `totalPayable` INTEGER, `notes` TEXT, `status` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))");
         _db.execSQL("CREATE TABLE IF NOT EXISTS `debt_monthly_payments` (`id` TEXT NOT NULL, `debtId` TEXT NOT NULL, `userId` TEXT NOT NULL, `paymentMonth` TEXT NOT NULL, `amount` INTEGER NOT NULL, `status` TEXT NOT NULL, `notes` TEXT, `updatedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`debtId`) REFERENCES `debts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )");
         _db.execSQL("CREATE INDEX IF NOT EXISTS `index_debt_monthly_payments_debtId` ON `debt_monthly_payments` (`debtId`)");
@@ -53,7 +53,7 @@ public final class FinanceDatabase_Impl extends FinanceDatabase {
         _db.execSQL("CREATE TABLE IF NOT EXISTS `sync_queue` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `operation` TEXT NOT NULL, `recordType` TEXT NOT NULL, `recordId` TEXT NOT NULL, `payload` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `attempts` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`id`))");
         _db.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_queue_createdAt` ON `sync_queue` (`createdAt`)");
         _db.execSQL("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)");
-        _db.execSQL("INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '44e6ebfc6dab35d1fab9c78cbaec6652')");
+        _db.execSQL("INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '4f69f18e598f24781a0c1b553f11cc61')");
       }
 
       @Override
@@ -103,12 +103,13 @@ public final class FinanceDatabase_Impl extends FinanceDatabase {
 
       @Override
       protected RoomOpenHelper.ValidationResult onValidateSchema(SupportSQLiteDatabase _db) {
-        final HashMap<String, TableInfo.Column> _columnsIncome = new HashMap<String, TableInfo.Column>(8);
+        final HashMap<String, TableInfo.Column> _columnsIncome = new HashMap<String, TableInfo.Column>(9);
         _columnsIncome.put("id", new TableInfo.Column("id", "TEXT", true, 1, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsIncome.put("userId", new TableInfo.Column("userId", "TEXT", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsIncome.put("title", new TableInfo.Column("title", "TEXT", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsIncome.put("amount", new TableInfo.Column("amount", "INTEGER", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsIncome.put("occurredOn", new TableInfo.Column("occurredOn", "TEXT", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsIncome.put("category", new TableInfo.Column("category", "TEXT", false, 0, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsIncome.put("notes", new TableInfo.Column("notes", "TEXT", false, 0, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsIncome.put("updatedAt", new TableInfo.Column("updatedAt", "INTEGER", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsIncome.put("deleted", new TableInfo.Column("deleted", "INTEGER", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
@@ -121,12 +122,13 @@ public final class FinanceDatabase_Impl extends FinanceDatabase {
                   + " Expected:\n" + _infoIncome + "\n"
                   + " Found:\n" + _existingIncome);
         }
-        final HashMap<String, TableInfo.Column> _columnsExpenses = new HashMap<String, TableInfo.Column>(8);
+        final HashMap<String, TableInfo.Column> _columnsExpenses = new HashMap<String, TableInfo.Column>(9);
         _columnsExpenses.put("id", new TableInfo.Column("id", "TEXT", true, 1, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsExpenses.put("userId", new TableInfo.Column("userId", "TEXT", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsExpenses.put("title", new TableInfo.Column("title", "TEXT", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsExpenses.put("amount", new TableInfo.Column("amount", "INTEGER", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsExpenses.put("occurredOn", new TableInfo.Column("occurredOn", "TEXT", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsExpenses.put("category", new TableInfo.Column("category", "TEXT", false, 0, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsExpenses.put("notes", new TableInfo.Column("notes", "TEXT", false, 0, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsExpenses.put("updatedAt", new TableInfo.Column("updatedAt", "INTEGER", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
         _columnsExpenses.put("deleted", new TableInfo.Column("deleted", "INTEGER", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
@@ -226,7 +228,7 @@ public final class FinanceDatabase_Impl extends FinanceDatabase {
         }
         return new RoomOpenHelper.ValidationResult(true, null);
       }
-    }, "44e6ebfc6dab35d1fab9c78cbaec6652", "cd628943246533cb10b393746ec9cebf");
+    }, "4f69f18e598f24781a0c1b553f11cc61", "74fb6db7aab78893c8a4f1504a45aead");
     final SupportSQLiteOpenHelper.Configuration _sqliteConfig = SupportSQLiteOpenHelper.Configuration.builder(configuration.context)
         .name(configuration.name)
         .callback(_openCallback)
