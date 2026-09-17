@@ -3,6 +3,8 @@ package ph.moneytrack
 import android.app.AlertDialog
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -27,6 +29,21 @@ class MainActivity : AppCompatActivity() {
     private lateinit var page: LinearLayout
     private lateinit var pageTitle: TextView
     private var syncTrigger: ConnectivitySyncTrigger? = null
+    private val autoSyncHandler = Handler(Looper.getMainLooper())
+    private val autoSyncRunnable = object : Runnable {
+        override fun run() {
+            if (::syncRepository.isInitialized && ::syncProcessor.isInitialized) {
+                scope.launch(Dispatchers.IO) {
+                    syncRepository.refreshSession()
+                    syncProcessor.synchronize(
+                        uploader = { item -> syncRepository.upload(item) },
+                        puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
+                    )
+                }
+            }
+            autoSyncHandler.postDelayed(this, 5 * 60 * 1000L)
+        }
+    }
     private lateinit var syncRepository: SupabaseSyncRepository
     private lateinit var syncProcessor: SyncProcessor
     private var observing = false
@@ -34,7 +51,24 @@ class MainActivity : AppCompatActivity() {
     private var dark = false
     private var accent = Color.rgb(35, 105, 175)
     private val permission: LocalPermission
-        get() = LocalPermission(runCatching { LocalRole.valueOf(getSharedPreferences("moneytrack", 0).getString("role", "ADMIN") ?: "ADMIN") }.getOrDefault(LocalRole.ADMIN))
+        get() {
+            val prefs = getSharedPreferences("moneytrack", 0)
+            val role = runCatching { LocalRole.valueOf(prefs.getString("role", "ADMIN") ?: "ADMIN") }.getOrDefault(LocalRole.ADMIN)
+            fun allowed(name: String, fallback: Boolean) = prefs.getBoolean("permission_$name", fallback)
+            return LocalPermission(
+                role = role,
+                canAddIncome = allowed("add_income", role != LocalRole.VIEWER),
+                canEditIncome = allowed("edit_income", role != LocalRole.VIEWER),
+                canDeleteIncome = allowed("delete_income", role == LocalRole.ADMIN),
+                canAddExpenses = allowed("add_expenses", role != LocalRole.VIEWER),
+                canEditExpenses = allowed("edit_expenses", role != LocalRole.VIEWER),
+                canDeleteExpenses = allowed("delete_expenses", role == LocalRole.ADMIN),
+                canManageDebts = allowed("manage_debts", role != LocalRole.VIEWER),
+                canViewReports = allowed("view_reports", true),
+                canViewHistory = allowed("view_history", role == LocalRole.ADMIN),
+                canManageUsers = allowed("manage_users", role == LocalRole.ADMIN)
+            )
+        }
     private val userId: String
         get() {
         val p = getSharedPreferences("moneytrack", 0)
@@ -46,12 +80,14 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         dark = getSharedPreferences("moneytrack", 0).getBoolean("dark", false)
-        accent = getSharedPreferences("moneytrack", 0).getInt("accent", accent)
+        accent = getSharedPreferences("moneytrack", 0).getInt("theme_accent",
+            getSharedPreferences("moneytrack", 0).getInt("accent", accent))
         if (getSharedPreferences("moneytrack", 0).getBoolean("signed_in", false)) enterApp() else showLogin()
     }
 
     override fun onDestroy() {
         syncTrigger?.stop()
+        autoSyncHandler.removeCallbacks(autoSyncRunnable)
         scope.cancel()
         super.onDestroy()
     }
@@ -125,6 +161,8 @@ class MainActivity : AppCompatActivity() {
                 puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
             )
         }
+        autoSyncHandler.removeCallbacks(autoSyncRunnable)
+        autoSyncHandler.postDelayed(autoSyncRunnable, 5 * 60 * 1000L)
         try {
             syncTrigger?.start()
             scope.launch(Dispatchers.IO) {
@@ -144,7 +182,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildShell() {
         drawer = DrawerLayout(this)
-        val main = vertical().apply { setBackgroundColor(if (dark) Color.rgb(20, 25, 31) else Color.rgb(247, 249, 252)) }
+        val main = vertical().apply { setBackgroundColor(getThemeColor("background", if (dark) Color.rgb(20, 25, 31) else Color.rgb(247, 249, 252))) }
         val toolbar = horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
@@ -200,7 +238,11 @@ class MainActivity : AppCompatActivity() {
         menu.addView(label("MONEYTRACK PH", 13f))
         menu.addView(label("Your personal finance workspace", 12f))
         val items = arrayOf("Dashboard", "Income", "Expenses", "Debt Tracker", "History", "Reports",
-            "Users", "Settings", "My Profile", "Logout").filter { it != "Users" || permission.canManageUsers }
+            "Users", "Settings", "My Profile", "Logout").filter {
+            (it != "Users" || permission.canManageUsers) &&
+            (it != "History" || permission.canViewHistory) &&
+            (it != "Reports" || permission.canViewReports)
+        }
         items.forEach { name ->
             val item = button(if (name == current) "●  $name" else "   $name").apply {
                 gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
@@ -210,6 +252,7 @@ class MainActivity : AppCompatActivity() {
                         getSharedPreferences("moneytrack", 0).edit().putBoolean("signed_in", false).apply()
                         SessionStore(this@MainActivity).clear()
                         syncTrigger?.stop()
+                        autoSyncHandler.removeCallbacks(autoSyncRunnable)
                         syncTrigger = null
                         observing = false
                         showLogin()
@@ -272,10 +315,10 @@ class MainActivity : AppCompatActivity() {
             "Income ₱${money(weeklyIncome)}  •  Expenses ₱${money(weeklyExpense)}"))
         page.addView(label("Quick actions", 18f))
         val actions = horizontal()
-        actions.addView(button("+ Income").also { it.setOnClickListener { addTransaction(true) } }, weight())
-        actions.addView(button("+ Expense").also { it.setOnClickListener { addTransaction(false) } }, weight())
+        if (permission.canAddIncome) actions.addView(button("+ Income").also { it.setOnClickListener { addTransaction(true) } }, weight())
+        if (permission.canAddExpenses) actions.addView(button("+ Expense").also { it.setOnClickListener { addTransaction(false) } }, weight())
         page.addView(actions)
-        page.addView(button("+ Track a debt").also { it.setOnClickListener { addDebt() } })
+        if (permission.canManageDebts) page.addView(button("+ Track a debt").also { it.setOnClickListener { addDebt() } })
         page.addView(label("Recent activity", 18f))
         inc.take(3).forEach { page.addView(row("↑ ${it.title}", "₱${money(it.amount)}", Color.rgb(34, 145, 92)) { deleteIncome(it.id) }) }
         exp.take(3).forEach { page.addView(row("↓ ${it.title}", "₱${money(it.amount)}", Color.rgb(205, 71, 71)) { deleteExpense(it.id) }) }
@@ -284,7 +327,9 @@ class MainActivity : AppCompatActivity() {
     private fun renderTransactions(income: Boolean) {
         page.addView(label(if (income) "Income" else "Expenses", 26f))
         page.addView(label(if (income) "Keep every inflow in one place." else "See where your money goes.", 14f))
-        if (permission.canWrite) page.addView(button(if (income) "+ Add income" else "+ Add expense").also { it.setOnClickListener { addTransaction(income) } })
+        if (if (income) permission.canAddIncome else permission.canAddExpenses) {
+            page.addView(button(if (income) "+ Add income" else "+ Add expense").also { it.setOnClickListener { addTransaction(income) } })
+        }
         val search = field("Search ${if (income) "income" else "expenses"}…")
         page.addView(search)
         val list = vertical(); page.addView(list)
@@ -295,21 +340,19 @@ class MainActivity : AppCompatActivity() {
                 runBlockingValue { repository.incomesValue() }
                     .filter { it.title.contains(query, true) }
                     .forEach { item ->
-                    list.addView(row(item.title, "₱${money(item.amount)}  •  ${item.occurredOn}${item.category?.let { " • $it" } ?: ""}", Color.rgb(34, 145, 92)) {
-                        AlertDialog.Builder(this).setItems(arrayOf("Edit", "Delete")) { _, which ->
-                            if (which == 0) addTransaction(true, item) else deleteIncome(item.id)
-                        }.show()
-                    })
+                    list.addView(transactionRow(item.title, "₱${money(item.amount)}  •  ${item.occurredOn}${item.category?.let { " • $it" } ?: ""}", Color.rgb(34, 145, 92),
+                        permission.canEditIncome, permission.canDeleteIncome,
+                        { if (permission.canEditIncome) addTransaction(true, item) },
+                        { if (permission.canDeleteIncome) deleteIncome(item.id) }))
                     }
             } else {
                 runBlockingValue { repository.expensesValue() }
                     .filter { it.title.contains(query, true) }
                     .forEach { item ->
-                    list.addView(row(item.title, "₱${money(item.amount)}  •  ${item.occurredOn}${item.category?.let { " • $it" } ?: ""}", Color.rgb(205, 71, 71)) {
-                        AlertDialog.Builder(this).setItems(arrayOf("Edit", "Delete")) { _, which ->
-                            if (which == 0) addTransaction(false, item) else deleteExpense(item.id)
-                        }.show()
-                    })
+                    list.addView(transactionRow(item.title, "₱${money(item.amount)}  •  ${item.occurredOn}${item.category?.let { " • $it" } ?: ""}", Color.rgb(205, 71, 71),
+                        permission.canEditExpenses, permission.canDeleteExpenses,
+                        { if (permission.canEditExpenses) addTransaction(false, item) },
+                        { if (permission.canDeleteExpenses) deleteExpense(item.id) }))
                     }
             }
             if (list.childCount == 0) list.addView(label("No matching records yet.", 14f))
@@ -320,7 +363,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderDebts() {
         page.addView(label("Debt Tracker", 26f))
         page.addView(label("Track borrowers, due dates, and monthly commitments.", 14f))
-        if (permission.canWrite) page.addView(button("+ Add debt").also { it.setOnClickListener { addDebt() } })
+        if (permission.canManageDebts) page.addView(button("+ Add debt").also { it.setOnClickListener { addDebt() } })
         runBlockingValue { repository.debtsValue() }.forEach { debt ->
             val box = card(debt.person, "₱${money(debt.principalAmount)}  •  ${debt.status.toUpperCase(Locale.US)}",
                 "Started ${debt.startDate}${debt.dueDate?.let { "  •  Due $it" } ?: ""}")
@@ -389,6 +432,14 @@ class MainActivity : AppCompatActivity() {
             dark = checked; getSharedPreferences("moneytrack", 0).edit().putBoolean("dark", dark).apply(); buildShell(); observeData(); navigate(current)
         }
         page.addView(theme)
+        page.addView(label("Background color (RGB)", 14f))
+        page.addView(rgbEditor("background", getThemeColor("background", if (dark) Color.rgb(20,25,31) else Color.rgb(247,249,252))) { color ->
+            saveThemeColor("background", color); buildShell(); observeData(); navigate(current)
+        })
+        page.addView(label("Font / text color (RGB)", 14f))
+        page.addView(rgbEditor("text", getThemeColor("text", if (dark) Color.LTGRAY else Color.rgb(35,45,58))) { color ->
+            saveThemeColor("text", color); buildShell(); observeData(); navigate(current)
+        })
         page.addView(label("Accent color", 14f))
         val accents = horizontal()
         listOf(Color.rgb(35,105,175), Color.rgb(34,145,92), Color.rgb(155,75,170), Color.rgb(205,71,71)).forEach { color ->
@@ -398,9 +449,22 @@ class MainActivity : AppCompatActivity() {
             }, weight())
         }
         page.addView(accents)
+        page.addView(label("Accent color (RGB)", 14f))
+        page.addView(rgbEditor("accent", accent) { color ->
+            accent = color
+            saveThemeColor("accent", color)
+            buildShell(); observeData(); navigate(current)
+        })
         page.addView(button("Reset local preferences").also { it.setOnClickListener {
             AlertDialog.Builder(this).setTitle("Reset preferences?").setMessage("Your finance records are kept; only sign-in and theme preferences reset.")
                 .setPositiveButton("Reset") { _, _ -> getSharedPreferences("moneytrack", 0).edit().clear().apply(); showLogin() }.setNegativeButton("Cancel", null).show()
+        } })
+        page.addView(button("Reset theme only").also { it.setOnClickListener {
+            getSharedPreferences("moneytrack", 0).edit()
+                .remove("dark").remove("accent").remove("theme_background").remove("theme_text").remove("theme_accent").apply()
+            dark = false
+            accent = Color.rgb(35, 105, 175)
+            buildShell(); observeData(); navigate(current)
         } })
     }
 
@@ -411,10 +475,72 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderUsers() {
-        page.addView(label("Users", 26f)); page.addView(label("Team access", 14f))
-        page.addView(card("CURRENT ROLE", "Owner", "Full access to this local workspace"))
-        page.addView(label("Additional users and role management will appear here when team sync is enabled.", 15f))
-        page.addView(label("Permission-aware: only owners can manage workspace settings.", 13f))
+        page.addView(label("Users", 26f)); page.addView(label("Roles and permissions for this AndroidIDE MVP.", 14f))
+        val prefs = getSharedPreferences("moneytrack", 0)
+        val managedUsers = HashSet(prefs.getStringSet("managed_users", emptySet()) ?: emptySet())
+        page.addView(button("Add user").also { it.setOnClickListener { editManagedUser(null) } })
+        managedUsers.forEach { entry ->
+            val parts = entry.split("|")
+            val name = parts.getOrElse(0) { "User" }
+            val userRole = parts.getOrElse(1) { "VIEWER" }
+            page.addView(transactionRow(name, userRole, accent, true, true,
+                { editManagedUser(entry) },
+                {
+                    managedUsers.remove(entry)
+                    prefs.edit().putStringSet("managed_users", managedUsers).apply()
+                    render()
+                }))
+        }
+        if (managedUsers.isEmpty()) page.addView(label("No additional local users added yet.", 14f))
+        val role = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, LocalRole.values().map { it.name }.toTypedArray())
+            setSelection(LocalRole.values().indexOf(permission.role))
+            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    prefs.edit().putString("role", LocalRole.values()[position].name).apply()
+                }
+            }
+        }
+        page.addView(label("Current role", 14f)); page.addView(role)
+        val permissions = arrayOf(
+            "view_records" to "View all records", "add_income" to "Add income", "edit_income" to "Edit income",
+            "delete_income" to "Delete income", "add_expenses" to "Add expenses", "edit_expenses" to "Edit expenses",
+            "delete_expenses" to "Delete expenses", "manage_debts" to "Manage debts", "view_reports" to "View reports",
+            "view_history" to "View history", "manage_users" to "Manage users"
+        )
+        permissions.forEach { (key, title) ->
+            page.addView(CheckBox(this).apply {
+                text = title
+                isChecked = prefs.getBoolean("permission_$key", permission.role == LocalRole.ADMIN || (key == "view_records" || key == "view_reports"))
+                setOnCheckedChangeListener { _, checked -> prefs.edit().putBoolean("permission_$key", checked).apply() }
+            })
+        }
+        page.addView(label("Admin can manage all permissions. User access is limited to the permissions enabled here.", 13f))
+    }
+
+    private fun editManagedUser(existing: String?) {
+        val parts = existing?.split("|")
+        val name = field("User name or email").apply { setText(parts?.getOrElse(0) { "" } ?: "") }
+        val role = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, LocalRole.values().map { it.name }.toTypedArray())
+            setSelection(LocalRole.values().indexOf(runCatching { LocalRole.valueOf(parts?.getOrElse(1) { "VIEWER" } ?: "VIEWER") }.getOrDefault(LocalRole.VIEWER)))
+        }
+        val box = vertical(); box.addView(name); box.addView(role)
+        AlertDialog.Builder(this)
+            .setTitle(if (existing == null) "Add user" else "Edit user")
+            .setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                val value = name.text.toString().trim()
+                if (value.isEmpty()) return@setPositiveButton
+                val users = HashSet(getSharedPreferences("moneytrack", 0).getStringSet("managed_users", emptySet()) ?: emptySet())
+                if (existing != null) users.remove(existing)
+                users.add("$value|${LocalRole.values()[role.selectedItemPosition].name}")
+                getSharedPreferences("moneytrack", 0).edit().putStringSet("managed_users", users).apply()
+                render()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun addTransaction(income: Boolean, existing: Any? = null) {
@@ -471,7 +597,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun vertical() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(18), dp(20), dp(18)) }
     private fun horizontal() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-    private fun label(value: String, size: Float) = TextView(this).apply { text=value; textSize=size; setTextColor(if (dark) Color.LTGRAY else Color.rgb(35,45,58)); setPadding(dp(6), dp(7), dp(6), dp(7)) }
+    private fun label(value: String, size: Float) = TextView(this).apply { text=value; textSize=size; setTextColor(getThemeColor("text", if (dark) Color.LTGRAY else Color.rgb(35,45,58))); setPadding(dp(6), dp(7), dp(6), dp(7)) }
     private fun field(hint: String) = EditText(this).apply { this.hint=hint; setSingleLine(true); setPadding(dp(10), dp(10), dp(10), dp(10)) }
     private fun button(value: String) = Button(this).apply { text=value; isAllCaps=false }
     private fun card(title: String, value: String, detail: String): LinearLayout {
@@ -482,6 +608,34 @@ class MainActivity : AppCompatActivity() {
         val r = horizontal().apply { setPadding(dp(8), dp(6), dp(8), dp(6)) }
         val t = label(title, 15f).apply { setTextColor(color) }; r.addView(vertical().apply { addView(t); addView(label(detail, 12f)) }, LinearLayout.LayoutParams(0,-2,1f))
         if (action != null) r.addView(button("Delete").also { it.setOnClickListener { action() } }); return r
+    }
+    private fun transactionRow(title: String, detail: String, color: Int, canEdit: Boolean, canDelete: Boolean, edit: () -> Unit, delete: () -> Unit): LinearLayout {
+        val r = horizontal().apply { setPadding(dp(8), dp(6), dp(8), dp(6)) }
+        val t = label(title, 15f).apply { setTextColor(color) }
+        r.addView(vertical().apply { addView(t); addView(label(detail, 12f)) }, LinearLayout.LayoutParams(0, -2, 1f))
+        if (canEdit) r.addView(button("Edit").also { it.setOnClickListener { edit() } })
+        if (canDelete) r.addView(button("Delete").also { it.setOnClickListener { delete() } })
+        return r
+    }
+    private fun rgbEditor(name: String, initial: Int, changed: (Int) -> Unit): LinearLayout {
+        val box = horizontal()
+        val red = field("R").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(Color.red(initial).toString()) }
+        val green = field("G").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(Color.green(initial).toString()) }
+        val blue = field("B").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(Color.blue(initial).toString()) }
+        val apply = button("Apply")
+        apply.setOnClickListener {
+            val color = Color.rgb(red.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0,
+                green.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0,
+                blue.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0)
+            changed(color)
+        }
+        box.addView(red, weight()); box.addView(green, weight()); box.addView(blue, weight()); box.addView(apply)
+        return box
+    }
+    private fun getThemeColor(name: String, fallback: Int): Int =
+        getSharedPreferences("moneytrack", 0).getInt("theme_$name", fallback)
+    private fun saveThemeColor(name: String, color: Int) {
+        getSharedPreferences("moneytrack", 0).edit().putInt("theme_$name", color).apply()
     }
     private fun weight() = LinearLayout.LayoutParams(0, -2, 1f)
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()

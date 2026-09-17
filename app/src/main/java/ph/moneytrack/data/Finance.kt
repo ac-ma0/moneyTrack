@@ -5,9 +5,22 @@ import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
 enum class LocalRole { ADMIN, EDITOR, VIEWER }
-data class LocalPermission(val role: LocalRole, val canRead: Boolean = true,
-                           val canWrite: Boolean = role != LocalRole.VIEWER,
-                           val canManageUsers: Boolean = role == LocalRole.ADMIN)
+data class LocalPermission(
+    val role: LocalRole,
+    val canRead: Boolean = true,
+    val canAddIncome: Boolean = role != LocalRole.VIEWER,
+    val canEditIncome: Boolean = role != LocalRole.VIEWER,
+    val canDeleteIncome: Boolean = role == LocalRole.ADMIN,
+    val canAddExpenses: Boolean = role != LocalRole.VIEWER,
+    val canEditExpenses: Boolean = role != LocalRole.VIEWER,
+    val canDeleteExpenses: Boolean = role == LocalRole.ADMIN,
+    val canManageDebts: Boolean = role != LocalRole.VIEWER,
+    val canViewReports: Boolean = true,
+    val canViewHistory: Boolean = role == LocalRole.ADMIN,
+    val canManageUsers: Boolean = role == LocalRole.ADMIN
+) {
+    val canWrite: Boolean get() = canAddIncome || canEditIncome || canAddExpenses || canEditExpenses || canManageDebts
+}
 
 private fun id() = UUID.randomUUID().toString()
 
