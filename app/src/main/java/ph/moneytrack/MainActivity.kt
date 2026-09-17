@@ -38,7 +38,7 @@ class MainActivity : AppCompatActivity() {
     private var dashboardContainer = Color.WHITE
     private var buttonBackground = Color.rgb(35, 105, 175)
     private var buttonText = Color.WHITE
-    private var titleColor = Color.rgb(25, 42, 65)
+    private var headingColor = Color.rgb(25, 42, 65)
     private var drawerBackground = Color.WHITE
     private val permission: LocalPermission
         get() {
@@ -80,7 +80,7 @@ class MainActivity : AppCompatActivity() {
         dashboardContainer = getSharedPreferences("moneytrack", 0).getInt("theme_container", if (dark) Color.rgb(43,54,67) else Color.WHITE)
         buttonBackground = getSharedPreferences("moneytrack", 0).getInt("theme_button_background", accent)
         buttonText = getSharedPreferences("moneytrack", 0).getInt("theme_button_text", Color.WHITE)
-        titleColor = getSharedPreferences("moneytrack", 0).getInt("theme_title", Color.rgb(25,42,65))
+        headingColor = getSharedPreferences("moneytrack", 0).getInt("theme_title", Color.rgb(25,42,65))
         drawerBackground = getSharedPreferences("moneytrack", 0).getInt("theme_drawer", if (dark) Color.rgb(31,40,50) else Color.WHITE)
         if (getSharedPreferences("moneytrack", 0).getBoolean("signed_in", false)) enterApp() else showLogin()
     }
@@ -201,7 +201,7 @@ class MainActivity : AppCompatActivity() {
         toolbar.addView(button("☰").apply {
             minWidth = dp(48); setOnClickListener { drawer.openDrawer(Gravity.LEFT) }
         })
-        pageTitle = label("Dashboard", 21f).apply { setTextColor(titleColor) }
+        pageTitle = label("Dashboard", 21f).apply { setTextColor(headingColor) }
         toolbar.addView(pageTitle, LinearLayout.LayoutParams(0, -2, 1f))
         toolbar.addView(label("₱", 24f))
         main.addView(toolbar)
@@ -492,7 +492,7 @@ class MainActivity : AppCompatActivity() {
         page.addView(label("Buttons font color (RGB)", 13f))
         page.addView(rgbEditor("button_text", buttonText) { color -> buttonText = color; saveThemeColor("button_text", color); render() })
         page.addView(label("Title color (RGB)", 13f))
-        page.addView(rgbEditor("title", titleColor) { color -> titleColor = color; saveThemeColor("title", color); buildShell(); observeData(); navigate(current) })
+        page.addView(rgbEditor("title", headingColor) { color -> headingColor = color; saveThemeColor("title", color); buildShell(); observeData(); navigate(current) })
         page.addView(label("Navigation drawer background color (RGB)", 13f))
         page.addView(rgbEditor("drawer", drawerBackground) { color -> drawerBackground = color; saveThemeColor("drawer", color); buildShell(); observeData(); navigate(current) })
         page.addView(button("Reset local preferences").also { it.setOnClickListener {
@@ -509,7 +509,7 @@ class MainActivity : AppCompatActivity() {
             dashboardContainer = Color.WHITE
             buttonBackground = accent
             buttonText = Color.WHITE
-            titleColor = Color.rgb(25, 42, 65)
+            headingColor = Color.rgb(25, 42, 65)
             drawerBackground = Color.WHITE
             buildShell(); observeData(); navigate(current)
         } })
@@ -772,7 +772,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun vertical() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(18), dp(20), dp(18)) }
     private fun horizontal() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-    private fun label(value: String, size: Float) = TextView(this).apply { text=value; textSize=size; setTextColor(if (size >= 24f) titleColor else getThemeColor("text", if (dark) Color.LTGRAY else Color.rgb(35,45,58))); setPadding(dp(4), dp(4), dp(4), dp(4)) }
+    private fun label(value: String, size: Float) = TextView(this).apply { text=value; textSize=size; setTextColor(if (size >= 24f) headingColor else getThemeColor("text", if (dark) Color.LTGRAY else Color.rgb(35,45,58))); setPadding(dp(4), dp(4), dp(4), dp(4)) }
     private fun field(hint: String) = EditText(this).apply { this.hint=hint; setSingleLine(true); setPadding(dp(10), dp(10), dp(10), dp(10)) }
     private fun button(value: String) = Button(this).apply { text=value; isAllCaps=false; setTextColor(buttonText); setBackgroundColor(buttonBackground); setPadding(dp(6), dp(2), dp(6), dp(2)); minHeight = dp(34) }
     private fun userSelector(): Spinner {
