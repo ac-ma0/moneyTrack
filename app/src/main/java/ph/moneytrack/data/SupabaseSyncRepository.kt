@@ -132,7 +132,7 @@ class SupabaseSyncRepository(
             .addHeader("Accept", "application/json")
             .get()
             .build()
-        client.newCall(request).execute().use { response ->
+        return client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IOException("Fetch $table failed (${response.code}): ${response.body?.string().orEmpty().take(180)}")
             }
