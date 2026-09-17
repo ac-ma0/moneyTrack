@@ -33,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private var observing = false
     private var current = "Dashboard"
     private var cloudUsers: List<Pair<String, String>> = emptyList()
+    private var selectedUserId: String? = null
     private var dark = false
     private var accent = Color.rgb(35, 105, 175)
     private var dashboardContainer = Color.WHITE
@@ -74,14 +75,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
-        dark = getSharedPreferences("moneytrack", 0).getBoolean("dark", false)
-        accent = getSharedPreferences("moneytrack", 0).getInt("theme_accent",
-            getSharedPreferences("moneytrack", 0).getInt("accent", accent))
-        dashboardContainer = getSharedPreferences("moneytrack", 0).getInt("theme_container", if (dark) Color.rgb(43,54,67) else Color.WHITE)
-        buttonBackground = getSharedPreferences("moneytrack", 0).getInt("theme_button_background", accent)
-        buttonText = getSharedPreferences("moneytrack", 0).getInt("theme_button_text", Color.WHITE)
-        headingColor = getSharedPreferences("moneytrack", 0).getInt("theme_title", Color.rgb(25,42,65))
-        drawerBackground = getSharedPreferences("moneytrack", 0).getInt("theme_drawer", if (dark) Color.rgb(31,40,50) else Color.WHITE)
+        val theme = themePreferences()
+        dark = theme.getBoolean("dark", false)
+        accent = theme.getInt("theme_accent", theme.getInt("accent", accent))
+        dashboardContainer = theme.getInt("theme_container", if (dark) Color.rgb(43,54,67) else Color.WHITE)
+        buttonBackground = theme.getInt("theme_button_background", accent)
+        buttonText = theme.getInt("theme_button_text", Color.WHITE)
+        headingColor = theme.getInt("theme_title", Color.rgb(25,42,65))
+        drawerBackground = theme.getInt("theme_drawer", if (dark) Color.rgb(31,40,50) else Color.WHITE)
         if (getSharedPreferences("moneytrack", 0).getBoolean("signed_in", false)) enterApp() else showLogin()
     }
 
@@ -148,10 +149,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun enterApp() {
         getSharedPreferences("moneytrack", 0).edit().putBoolean("signed_in", true).apply()
+        selectedUserId = SessionStore(this).userId ?: userId
+        loadThemeForSelectedUser()
         repository = FinanceRepository(
             FinanceDatabase.create(this),
-            userId,
-            SessionStore(this).role == "admin" || SessionStore(this).permissions().contains("view_all_records")
+            selectedUserId ?: userId,
+            false
         )
         syncRepository = SupabaseSyncRepository(
             BuildConfig.SUPABASE_URL,
@@ -173,7 +176,8 @@ class MainActivity : AppCompatActivity() {
                 syncRepository.refreshSession()
                 syncRepository.refreshAccessPolicy()
                 if (SessionStore(this@MainActivity).role == "admin" ||
-                    SessionStore(this@MainActivity).permissions().contains("manage_users")) {
+                    SessionStore(this@MainActivity).permissions().contains("manage_users") ||
+                    SessionStore(this@MainActivity).permissions().contains("view_all_records")) {
                     cloudUsers = syncRepository.fetchProfiles()
                 }
                 withContext(Dispatchers.Main) { reloadRepositoryScope() }
@@ -455,7 +459,7 @@ class MainActivity : AppCompatActivity() {
         page.addView(label("Settings", 26f)); page.addView(label("Personalize your MoneyTrack workspace.", 14f))
         val theme = Switch(this).apply { text = "Dark theme"; isChecked = dark; setPadding(dp(8), dp(18), dp(8), dp(18)) }
         theme.setOnCheckedChangeListener { _, checked ->
-            dark = checked; getSharedPreferences("moneytrack", 0).edit().putBoolean("dark", dark).apply(); buildShell(); observeData(); navigate(current)
+            dark = checked; themePreferences().edit().putBoolean("dark", dark).apply(); buildShell(); observeData(); navigate(current)
         }
         page.addView(theme)
         page.addView(label("Background color (RGB)", 14f))
@@ -471,7 +475,7 @@ class MainActivity : AppCompatActivity() {
         listOf(Color.rgb(35,105,175), Color.rgb(34,145,92), Color.rgb(155,75,170), Color.rgb(205,71,71)).forEach { color ->
             accents.addView(button("●").apply {
                 setTextColor(color)
-                setOnClickListener { accent = color; getSharedPreferences("moneytrack", 0).edit().putInt("accent", color).apply(); buildShell(); observeData(); navigate(current) }
+                setOnClickListener { accent = color; themePreferences().edit().putInt("accent", color).apply(); buildShell(); observeData(); navigate(current) }
             }, weight())
         }
         page.addView(accents)
@@ -500,7 +504,7 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton("Reset") { _, _ -> getSharedPreferences("moneytrack", 0).edit().clear().apply(); showLogin() }.setNegativeButton("Cancel", null).show()
         } })
         page.addView(button("Reset theme only").also { it.setOnClickListener {
-            getSharedPreferences("moneytrack", 0).edit()
+            themePreferences().edit()
                 .remove("dark").remove("accent").remove("theme_background").remove("theme_text").remove("theme_accent")
                 .remove("theme_container").remove("theme_button_background").remove("theme_button_text")
                 .remove("theme_title").remove("theme_drawer").apply()
@@ -763,8 +767,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun reloadRepositoryScope() {
         val session = SessionStore(this)
-        val viewAll = session.role == "admin" || session.permissions().contains("view_all_records")
-        repository = FinanceRepository(FinanceDatabase.create(this), userId, viewAll)
+        val canSelectOthers = session.role == "admin" || session.permissions().contains("view_all_records")
+        if (!canSelectOthers) selectedUserId = session.userId ?: userId
+        repository = FinanceRepository(FinanceDatabase.create(this), selectedUserId ?: userId, false)
         observing = false
         observeData()
         render()
@@ -776,20 +781,27 @@ class MainActivity : AppCompatActivity() {
     private fun field(hint: String) = EditText(this).apply { this.hint=hint; setSingleLine(true); setPadding(dp(10), dp(10), dp(10), dp(10)) }
     private fun button(value: String) = Button(this).apply { text=value; isAllCaps=false; setTextColor(buttonText); setBackgroundColor(buttonBackground); setPadding(dp(6), dp(2), dp(6), dp(2)); minHeight = dp(34) }
     private fun userSelector(): Spinner {
-        val names = mutableListOf<String>()
-        names.add(SessionStore(this).fullName ?: SessionStore(this).email ?: "Current user")
-        cloudUsers.forEach { entry ->
-            val name = entry.first.substringAfter(" • ", "")
-            if (name.isNotBlank() && name != names[0]) names.add(name)
+        val session = SessionStore(this)
+        val canSelectOthers = session.role == "admin" || session.permissions().contains("view_all_records")
+        val entries = mutableListOf<Pair<String, String>>()
+        entries.add((session.userId ?: userId) to (session.fullName ?: session.email ?: "Current user"))
+        if (canSelectOthers) cloudUsers.forEach { entry ->
+            val id = entry.first.substringBefore(" •")
+            val name = entry.first.substringAfter(" • ", "User")
+            if (entries.none { it.first == id }) entries.add(id to name)
         }
         return Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, names.toTypedArray())
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, entries.map { it.second }.toTypedArray())
             layoutParams = LinearLayout.LayoutParams(dp(145), dp(42))
-            setSelection(0)
+            setSelection(entries.indexOfFirst { it.first == (selectedUserId ?: userId) }.coerceAtLeast(0))
             onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onNothingSelected(parent: AdapterView<*>?) {}
                 override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    if (position > 0) Toast.makeText(this@MainActivity, "Select that Supabase account at login to open its private data.", Toast.LENGTH_SHORT).show()
+                    if (canSelectOthers && position < entries.size && entries[position].first != selectedUserId) {
+                        selectedUserId = entries[position].first
+                        loadThemeForSelectedUser()
+                        reloadRepositoryScope()
+                    }
                 }
             }
         }
@@ -851,10 +863,21 @@ class MainActivity : AppCompatActivity() {
         box.addView(preview, weight()); box.addView(red, weight()); box.addView(green, weight()); box.addView(blue, weight()); box.addView(transparent); box.addView(apply)
         return box
     }
+    private fun themePreferences() = getSharedPreferences("moneytrack.theme.${selectedUserId ?: SessionStore(this).userId ?: userId}", 0)
+    private fun loadThemeForSelectedUser() {
+        val theme = themePreferences()
+        dark = theme.getBoolean("dark", false)
+        accent = theme.getInt("theme_accent", theme.getInt("accent", Color.rgb(35, 105, 175)))
+        dashboardContainer = theme.getInt("theme_container", if (dark) Color.rgb(43,54,67) else Color.WHITE)
+        buttonBackground = theme.getInt("theme_button_background", accent)
+        buttonText = theme.getInt("theme_button_text", Color.WHITE)
+        headingColor = theme.getInt("theme_title", Color.rgb(25,42,65))
+        drawerBackground = theme.getInt("theme_drawer", if (dark) Color.rgb(31,40,50) else Color.WHITE)
+    }
     private fun getThemeColor(name: String, fallback: Int): Int =
-        getSharedPreferences("moneytrack", 0).getInt("theme_$name", fallback)
+        themePreferences().getInt("theme_$name", fallback)
     private fun saveThemeColor(name: String, color: Int) {
-        getSharedPreferences("moneytrack", 0).edit().putInt("theme_$name", color).apply()
+        themePreferences().edit().putInt("theme_$name", color).apply()
     }
     private fun weight() = LinearLayout.LayoutParams(0, -2, 1f)
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
