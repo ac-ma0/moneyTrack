@@ -1,21 +1,26 @@
 server is running...
 ******/dbclient: Caution, skipping hostkey check for localhost
-> Configure project :appWARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is experimental.
+> Configure project :app
+WARNING: The option setting 'android.aapt2FromMavenOverride=/usr/bin/aapt2' is experimental.
 > Task :app:preBuild UP-TO-DATE
 > Task :app:preDebugBuild UP-TO-DATE
-> Task :app:generateDebugBuildConfig UP-TO-DATE> Task :app:compileDebugAidl NO-SOURCE> Task :app:compileDebugRenderscript NO-SOURCE
+> Task :app:generateDebugBuildConfig UP-TO-DATE
+> Task :app:compileDebugAidl NO-SOURCE
+> Task :app:compileDebugRenderscript NO-SOURCE
 > Task :app:generateDebugResValues UP-TO-DATE
 > Task :app:generateDebugResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
 > Task :app:mergeDebugResources UP-TO-DATE
-> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE> Task :app:extractDeepLinksDebug UP-TO-DATE> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
 > Task :app:processDebugResources UP-TO-DATE
 > Task :app:kaptGenerateStubsDebugKotlin UP-TO-DATE
 > Task :app:kaptDebugKotlin UP-TO-DATE
-> Task :app:compileDebugKotline: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (212, 32): Unresolved reference: title
-e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (213, 37): Unresolved reference: title
-e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (213, 57): Unresolved reference: amount
-e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (213, 75): Unresolved reference: occurredOn
-e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (214, 49): Unresolved reference: ide: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (214, 75): Unresolved reference: id
+> Task :app:compileDebugKotlin
+e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (106, 23): No value passed for parameter 'uploader'e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (106, 29): Type mismatch: inferred type is ([ERROR : <Unknown lambda parameter type>]) -> Boolean but Int was expectede: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (106, 31): Cannot infer a type for this parameter. Please specify it explicitly.e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (106, 54): Suspension functions can be called only within coroutine bodye: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (110, 54): No value passed for parameter 'uploader'e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (110, 60): Type mismatch: inferred type is ([ERROR : <Unknown lambda parameter type>]) -> Boolean but Int was expectede: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (110, 62): Cannot infer a type for this parameter. Please specify it explicitly.e: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/MainActivity.kt: (110, 85): Suspension functions can be called only within coroutine bodye: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/data/SupabaseSyncRepository.kt: (77, 44): Unresolved reference: launche: /storage/internal_new/project/moneyTrack/app/src/main/java/ph/moneytrack/data/SupabaseSyncRepository.kt: (77, 69): Suspend function 'invoke' should be called only from a coroutine or another suspend function
 > Task :app:compileDebugKotlin FAILED
-FAILURE: 10 actionable tasks: 1 executed, 9 up-to-dateBuild failed with an exception.* What went wrong:Execution failed for task ':app:compileDebugKotlin'.> Compilation error. See log for more details* Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.* Get more help at https://help.gradle.orgBUILD FAILED in 12s
+FAILURE: Build failed with an exception.
+* What went wrong:Execution failed for task ':app:compileDebugKotlin'.> Compilation error. See log for more details* Try:Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.
+* Get more help at https://help.gradle.orgBUILD FAILED in 25s
+10 actionable tasks: 1 executed, 9 up-to-date
 Failed: Command failed with: 1
