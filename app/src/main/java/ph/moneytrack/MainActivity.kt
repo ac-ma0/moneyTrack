@@ -519,12 +519,12 @@ class MainActivity : AppCompatActivity() {
                                 cloudUsers = withContext(Dispatchers.IO) { syncRepository.fetchProfiles() }
                                 render()
                             }
-                            if (cloudUsers.none { it.second == "admin" }) {
-                                page.addView(label("No admin is assigned. Verify your Supabase password to claim the first admin role.", 14f))
-                                page.addView(button("Set me as first admin").also { it.setOnClickListener { claimFirstAdmin() } })
-                            }
                         }
                     }))
+            }
+            if (cloudUsers.none { it.second == "admin" }) {
+                page.addView(label("No admin is assigned. Verify your Supabase password to claim the first admin role.", 14f))
+                page.addView(button("Set me as first admin").also { it.setOnClickListener { claimFirstAdmin() } })
             }
         }
         if (permission.canManageUsers) page.addView(button("Add user").also { it.setOnClickListener { addSupabaseUser() } })
@@ -588,28 +588,28 @@ class MainActivity : AppCompatActivity() {
                         SessionStore(this@MainActivity).fullName = value
                         render()
                     }
+                }
+            }.setNegativeButton("Cancel", null).show()
+    }
 
-                    private fun claimFirstAdmin() {
-                        val password = field("Supabase password").apply {
-                            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                        }
-                        AlertDialog.Builder(this).setTitle("Verify first admin")
-                            .setMessage(SessionStore(this).email ?: "Signed-in email")
-                            .setView(password)
-                            .setPositiveButton("Verify") { _, _ ->
-                                scope.launch {
-                                    val session = SessionStore(this@MainActivity)
-                                    val result = SupabaseAuth(BuildConfig.SUPABASE_URL, BuildConfig.SUPABASE_ANON_KEY)
-                                        .signIn(session.email.orEmpty(), password.text.toString())
-                                    if (result is AuthResult.Success && syncRepository.updateProfile(userId, session.fullName ?: session.email.orEmpty(), "admin")) {
-                                        session.role = "admin"
-                                        cloudUsers = withContext(Dispatchers.IO) { syncRepository.fetchProfiles() }
-                                        render()
-                                    } else {
-                                        Toast.makeText(this@MainActivity, "Password verification failed.", Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            }.setNegativeButton("Cancel", null).show()
+    private fun claimFirstAdmin() {
+        val password = field("Supabase password").apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        AlertDialog.Builder(this).setTitle("Verify first admin")
+            .setMessage(SessionStore(this).email ?: "Signed-in email")
+            .setView(password)
+            .setPositiveButton("Verify") { _, _ ->
+                scope.launch {
+                    val session = SessionStore(this@MainActivity)
+                    val result = SupabaseAuth(BuildConfig.SUPABASE_URL, BuildConfig.SUPABASE_ANON_KEY)
+                        .signIn(session.email.orEmpty(), password.text.toString())
+                    if (result is AuthResult.Success && syncRepository.updateProfile(userId, session.fullName ?: session.email.orEmpty(), "admin")) {
+                        session.role = "admin"
+                        cloudUsers = withContext(Dispatchers.IO) { syncRepository.fetchProfiles() }
+                        render()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Password verification failed.", Toast.LENGTH_LONG).show()
                     }
                 }
             }.setNegativeButton("Cancel", null).show()
