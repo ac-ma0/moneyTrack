@@ -35,6 +35,7 @@ class MainActivity : AppCompatActivity() {
     private var cloudUsers: List<Pair<String, String>> = emptyList()
     private var dark = false
     private var accent = Color.rgb(35, 105, 175)
+    private var dashboardContainer = Color.WHITE
     private val permission: LocalPermission
         get() {
             val prefs = getSharedPreferences("moneytrack", 0)
@@ -72,6 +73,7 @@ class MainActivity : AppCompatActivity() {
         dark = getSharedPreferences("moneytrack", 0).getBoolean("dark", false)
         accent = getSharedPreferences("moneytrack", 0).getInt("theme_accent",
             getSharedPreferences("moneytrack", 0).getInt("accent", accent))
+        dashboardContainer = getSharedPreferences("moneytrack", 0).getInt("theme_container", if (dark) Color.rgb(43,54,67) else Color.WHITE)
         if (getSharedPreferences("moneytrack", 0).getBoolean("signed_in", false)) enterApp() else showLogin()
     }
 
@@ -105,6 +107,7 @@ class MainActivity : AppCompatActivity() {
                             session.userId = it
                             getSharedPreferences("moneytrack", 0).edit().putString("user_id", it).apply()
                         }
+                        session.email = email.text.toString().trim()
                         if (session.accessToken != null) enterApp() else {
                             message.text = "Sign in did not return a session"; signIn.isEnabled = true
                         }
@@ -122,6 +125,7 @@ class MainActivity : AppCompatActivity() {
                         SupabaseAuth.accessToken(result.body)?.let { session.accessToken = it }
                         SupabaseAuth.refreshToken(result.body)?.let { session.refreshToken = it }
                         SupabaseAuth.userId(result.body)?.let { session.userId = it; getSharedPreferences("moneytrack", 0).edit().putString("user_id", it).apply() }
+                        session.email = email.text.toString().trim()
                         if (session.accessToken != null) enterApp() else message.text = "Account created. Check your email, then sign in."
                     }
                     is AuthResult.Failure -> message.text = result.error.message ?: "Sign up failed"
@@ -187,11 +191,6 @@ class MainActivity : AppCompatActivity() {
         })
         pageTitle = label("Dashboard", 21f).apply { setTextColor(if (dark) Color.WHITE else Color.rgb(25, 42, 65)) }
         toolbar.addView(pageTitle, LinearLayout.LayoutParams(0, -2, 1f))
-        toolbar.addView(button("Refresh").apply {
-            minWidth = dp(82)
-            contentDescription = "Sync and refresh data"
-            setOnClickListener { syncNow() }
-        })
         toolbar.addView(label("₱", 24f))
         main.addView(toolbar)
         page = vertical()
@@ -462,6 +461,12 @@ class MainActivity : AppCompatActivity() {
             saveThemeColor("accent", color)
             buildShell(); observeData(); navigate(current)
         })
+        page.addView(label("Dashboard container color (RGB)", 14f))
+        page.addView(rgbEditor("container", dashboardContainer) { color ->
+            dashboardContainer = color
+            saveThemeColor("container", color)
+            render()
+        })
         page.addView(button("Reset local preferences").also { it.setOnClickListener {
             AlertDialog.Builder(this).setTitle("Reset preferences?").setMessage("Your finance records are kept; only sign-in and theme preferences reset.")
                 .setPositiveButton("Reset") { _, _ -> getSharedPreferences("moneytrack", 0).edit().clear().apply(); showLogin() }.setNegativeButton("Cancel", null).show()
@@ -471,98 +476,59 @@ class MainActivity : AppCompatActivity() {
                 .remove("dark").remove("accent").remove("theme_background").remove("theme_text").remove("theme_accent").apply()
             dark = false
             accent = Color.rgb(35, 105, 175)
+            dashboardContainer = Color.WHITE
             buildShell(); observeData(); navigate(current)
         } })
     }
 
     private fun renderProfile() {
         page.addView(label("My Profile", 26f)); page.addView(label("Personal account", 14f))
-        page.addView(card("SIGNED-IN USER", userId.take(8) + "…", "Offline-first profile • owner permissions"))
-        page.addView(label("Your account can create, edit, and delete its own finance records.", 15f))
+        val session = SessionStore(this)
+        page.addView(card("NAME", session.fullName ?: "Name not set", "Your Supabase profile name"))
+        page.addView(card("EMAIL", session.email ?: "Email unavailable", "Signed-in Supabase account"))
+        page.addView(card("ROLE", session.role, "Cloud role"))
+        page.addView(label("Permissions: ${if (permission.role == LocalRole.ADMIN) "All permissions" else session.permissions().sorted().joinToString().ifBlank { "No additional permissions" }}", 15f))
+        page.addView(button("Set or change my name").also { it.setOnClickListener { editOwnProfileName() } })
     }
 
     private fun renderUsers() {
         page.addView(label("Users", 26f)); page.addView(label("Roles and permissions for this AndroidIDE MVP.", 14f))
         val prefs = getSharedPreferences("moneytrack", 0)
-        page.addView(button("Refresh users from Supabase").also {
-            it.setOnClickListener {
-                scope.launch {
-                    try {
-                        cloudUsers = withContext(Dispatchers.IO) { syncRepository.fetchProfiles() }
-                        render()
-                    } catch (error: Exception) {
-                        Toast.makeText(this@MainActivity, error.message ?: "User fetch failed", Toast.LENGTH_LONG).show()
-                    }
+        if (permission.canManageUsers && cloudUsers.isEmpty()) {
+            page.addView(label("Loading Supabase users...", 14f))
+            scope.launch {
+                try {
+                    cloudUsers = withContext(Dispatchers.IO) { syncRepository.fetchProfiles() }
+                    render()
+                } catch (error: Exception) {
+                    Toast.makeText(this@MainActivity, error.message ?: "User fetch failed", Toast.LENGTH_LONG).show()
                 }
             }
-        })
+        }
         if (cloudUsers.isNotEmpty()) {
             page.addView(label("Supabase users", 16f))
             cloudUsers.forEach { user ->
-                page.addView(transactionRow(user.first, user.second, accent, permission.canManageUsers, false,
+                page.addView(transactionRow(user.first, user.second, accent, permission.canManageUsers, permission.canManageUsers,
                     {
                         val id = user.first.substringBefore(" •")
-                        val options = arrayOf("admin", "user")
-                        AlertDialog.Builder(this).setTitle("Set role").setItems(options) { _, index ->
-                            scope.launch {
-                                if (syncRepository.updateProfileRole(id, options[index])) {
-                                    cloudUsers = withContext(Dispatchers.IO) { syncRepository.fetchProfiles() }
-                                    render()
-                                }
+                        editCloudUser(id, user.first.substringAfter(" • ", ""))
+                    }, {
+                        val id = user.first.substringBefore(" •")
+                        scope.launch {
+                            if (syncRepository.clearProfileName(id)) {
+                                cloudUsers = withContext(Dispatchers.IO) { syncRepository.fetchProfiles() }
+                                render()
                             }
-                        }.show()
-                    }, {}))
-            }
-        } else if (permission.canManageUsers) {
-            page.addView(label("Press refresh to load users from Supabase.", 14f))
-        }
-        val managedUsers = HashSet(prefs.getStringSet("managed_users", emptySet()) ?: emptySet())
-        page.addView(button("Add Supabase user").also { it.setOnClickListener { addSupabaseUser() } })
-        managedUsers.forEach { entry ->
-            val parts = entry.split("|")
-            val name = parts.getOrElse(0) { "User" }
-            val userRole = parts.getOrElse(1) { "VIEWER" }
-            page.addView(transactionRow(name, userRole, accent, true, true,
-                { editManagedUser(entry) },
-                {
-                    managedUsers.remove(entry)
-                    prefs.edit().putStringSet("managed_users", managedUsers).apply()
-                    render()
-                }))
-        }
-        if (managedUsers.isEmpty()) page.addView(label("No additional local users added yet.", 14f))
-        val role = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, LocalRole.values().map { it.name }.toTypedArray())
-            setSelection(LocalRole.values().indexOf(permission.role))
-            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
-                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    prefs.edit().putString("role", LocalRole.values()[position].name).apply()
-                    scope.launch {
-                        syncRepository.updateProfileRole(userId, if (position == 0) "admin" else "user")
-                        syncRepository.refreshAccessPolicy()
-                    }
-                }
+                            if (cloudUsers.none { it.second == "admin" }) {
+                                page.addView(label("No admin is assigned. Verify your Supabase password to claim the first admin role.", 14f))
+                                page.addView(button("Set me as first admin").also { it.setOnClickListener { claimFirstAdmin() } })
+                            }
+                        }
+                    }))
             }
         }
-        page.addView(label("Current role", 14f)); page.addView(role)
-        val permissions = arrayOf(
-            "view_all_records" to "View all records", "add_income" to "Add income", "edit_income" to "Edit income",
-            "delete_income" to "Delete income", "add_expenses" to "Add expenses", "edit_expenses" to "Edit expenses",
-            "delete_expenses" to "Delete expenses", "manage_debts" to "Manage debts", "view_reports" to "View reports",
-            "view_history" to "View history", "manage_users" to "Manage users"
-        )
-        permissions.forEach { (key, title) ->
-            page.addView(CheckBox(this).apply {
-                text = title
-                isChecked = prefs.getBoolean("permission_$key", permission.role == LocalRole.ADMIN || (key == "view_all_records" || key == "view_reports"))
-                setOnCheckedChangeListener { _, checked ->
-                    prefs.edit().putBoolean("permission_$key", checked).apply()
-                    scope.launch { syncRepository.setPermission(userId, key, checked) }
-                }
-            })
-        }
-        page.addView(label("Admin can manage all permissions. User access is limited to the permissions enabled here.", 13f))
+        if (permission.canManageUsers) page.addView(button("Add user").also { it.setOnClickListener { addSupabaseUser() } })
+        page.addView(label("Admins can rename profiles, clear a display name, and assign admin or user roles. Authentication accounts are not deleted by the publishable-key client.", 13f))
     }
 
     private fun editManagedUser(existing: String?) {
@@ -592,17 +558,103 @@ class MainActivity : AppCompatActivity() {
 
     private fun addSupabaseUser() {
         val email = field("Email")
+        val name = field("Full name")
         val password = field("Temporary password").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
-        val box = vertical(); box.addView(email); box.addView(password)
+        val box = vertical(); box.addView(name); box.addView(email); box.addView(password)
         AlertDialog.Builder(this).setTitle("Add Supabase user").setView(box)
             .setPositiveButton("Create") { _, _ ->
                 scope.launch {
-                    val created = syncRepository.createUser(email.text.toString().trim(), password.text.toString())
+                    if (name.text.toString().trim().isEmpty()) {
+                        Toast.makeText(this@MainActivity, "A user name is required.", Toast.LENGTH_LONG).show()
+                        return@launch
+                    }
+                    val created = syncRepository.createUser(email.text.toString().trim(), password.text.toString(), name.text.toString().trim())
                     Toast.makeText(this@MainActivity,
                         if (created) "User created. Assign role and permissions after refreshing users." else syncRepository.lastError ?: "User creation failed.",
                         Toast.LENGTH_LONG).show()
+                }
+            }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun editOwnProfileName() {
+        val name = field("Full name").apply { setText(SessionStore(this@MainActivity).fullName ?: "") }
+        AlertDialog.Builder(this).setTitle("My profile name").setView(name)
+            .setPositiveButton("Save") { _, _ ->
+                val value = name.text.toString().trim()
+                if (value.isNotEmpty()) scope.launch {
+                    if (syncRepository.updateProfileName(userId, value)) {
+                        SessionStore(this@MainActivity).fullName = value
+                        render()
+                    }
+
+                    private fun claimFirstAdmin() {
+                        val password = field("Supabase password").apply {
+                            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                        }
+                        AlertDialog.Builder(this).setTitle("Verify first admin")
+                            .setMessage(SessionStore(this).email ?: "Signed-in email")
+                            .setView(password)
+                            .setPositiveButton("Verify") { _, _ ->
+                                scope.launch {
+                                    val session = SessionStore(this@MainActivity)
+                                    val result = SupabaseAuth(BuildConfig.SUPABASE_URL, BuildConfig.SUPABASE_ANON_KEY)
+                                        .signIn(session.email.orEmpty(), password.text.toString())
+                                    if (result is AuthResult.Success && syncRepository.updateProfile(userId, session.fullName ?: session.email.orEmpty(), "admin")) {
+                                        session.role = "admin"
+                                        cloudUsers = withContext(Dispatchers.IO) { syncRepository.fetchProfiles() }
+                                        render()
+                                    } else {
+                                        Toast.makeText(this@MainActivity, "Password verification failed.", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }.setNegativeButton("Cancel", null).show()
+                    }
+                }
+            }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun editCloudUser(id: String, currentName: String) {
+        scope.launch {
+            val currentPermissions = withContext(Dispatchers.IO) { syncRepository.fetchPermissions(id) }
+            showCloudUserEditor(id, currentName, currentPermissions)
+        }
+    }
+
+    private fun showCloudUserEditor(id: String, currentName: String, currentPermissions: Set<String>) {
+        val name = field("Full name").apply { setText(if (currentName == "null") "" else currentName) }
+        val role = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, arrayOf("user", "admin"))
+            setSelection(if (cloudUsers.firstOrNull { it.first.startsWith(id) }?.second == "admin") 1 else 0)
+        }
+        val permissionKeys = arrayOf(
+            "view_all_records" to "View all records", "add_income" to "Add income", "edit_income" to "Edit income",
+            "delete_income" to "Delete income", "add_expenses" to "Add expenses", "edit_expenses" to "Edit expenses",
+            "delete_expenses" to "Delete expenses", "manage_debts" to "Manage debts", "view_reports" to "View reports",
+            "view_history" to "View history", "manage_users" to "Manage users"
+        )
+        val checks = mutableMapOf<String, CheckBox>()
+        val box = vertical(); box.addView(name); box.addView(role)
+        box.addView(label("Permissions", 15f))
+        permissionKeys.forEach { (key, title) ->
+            checks[key] = CheckBox(this).apply {
+                text = title
+                isChecked = currentPermissions.contains(key)
+                box.addView(this)
+            }
+        }
+        AlertDialog.Builder(this).setTitle("Edit user").setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                val value = name.text.toString().trim()
+                scope.launch {
+                    if (value.isEmpty()) {
+                        Toast.makeText(this@MainActivity, "A user name is required.", Toast.LENGTH_LONG).show()
+                    } else if (syncRepository.updateProfile(id, value, role.selectedItem.toString())) {
+                        checks.forEach { (key, check) -> syncRepository.setPermission(id, key, check.isChecked) }
+                        cloudUsers = withContext(Dispatchers.IO) { syncRepository.fetchProfiles() }
+                        render()
+                    }
                 }
             }.setNegativeButton("Cancel", null).show()
     }
@@ -687,7 +739,7 @@ class MainActivity : AppCompatActivity() {
     private fun field(hint: String) = EditText(this).apply { this.hint=hint; setSingleLine(true); setPadding(dp(10), dp(10), dp(10), dp(10)) }
     private fun button(value: String) = Button(this).apply { text=value; isAllCaps=false }
     private fun card(title: String, value: String, detail: String): LinearLayout {
-        val box = vertical().apply { setPadding(dp(16), dp(14), dp(16), dp(14)); setBackgroundColor(if (dark) Color.rgb(43,54,67) else Color.WHITE) }
+        val box = vertical().apply { setPadding(dp(16), dp(14), dp(16), dp(14)); setBackgroundColor(dashboardContainer) }
         box.addView(label(title, 11f)); box.addView(label(value, 22f)); box.addView(label(detail, 12f)); return box
     }
     private fun row(title: String, detail: String, color: Int, action: (() -> Unit)?): LinearLayout {
