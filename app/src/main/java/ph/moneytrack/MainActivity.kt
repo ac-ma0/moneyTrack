@@ -36,6 +36,10 @@ class MainActivity : AppCompatActivity() {
     private var dark = false
     private var accent = Color.rgb(35, 105, 175)
     private var dashboardContainer = Color.WHITE
+    private var buttonBackground = Color.rgb(35, 105, 175)
+    private var buttonText = Color.WHITE
+    private var titleColor = Color.rgb(25, 42, 65)
+    private var drawerBackground = Color.WHITE
     private val permission: LocalPermission
         get() {
             val prefs = getSharedPreferences("moneytrack", 0)
@@ -74,6 +78,10 @@ class MainActivity : AppCompatActivity() {
         accent = getSharedPreferences("moneytrack", 0).getInt("theme_accent",
             getSharedPreferences("moneytrack", 0).getInt("accent", accent))
         dashboardContainer = getSharedPreferences("moneytrack", 0).getInt("theme_container", if (dark) Color.rgb(43,54,67) else Color.WHITE)
+        buttonBackground = getSharedPreferences("moneytrack", 0).getInt("theme_button_background", accent)
+        buttonText = getSharedPreferences("moneytrack", 0).getInt("theme_button_text", Color.WHITE)
+        titleColor = getSharedPreferences("moneytrack", 0).getInt("theme_title", Color.rgb(25,42,65))
+        drawerBackground = getSharedPreferences("moneytrack", 0).getInt("theme_drawer", if (dark) Color.rgb(31,40,50) else Color.WHITE)
         if (getSharedPreferences("moneytrack", 0).getBoolean("signed_in", false)) enterApp() else showLogin()
     }
 
@@ -164,6 +172,10 @@ class MainActivity : AppCompatActivity() {
             scope.launch(Dispatchers.IO) {
                 syncRepository.refreshSession()
                 syncRepository.refreshAccessPolicy()
+                if (SessionStore(this@MainActivity).role == "admin" ||
+                    SessionStore(this@MainActivity).permissions().contains("manage_users")) {
+                    cloudUsers = syncRepository.fetchProfiles()
+                }
                 withContext(Dispatchers.Main) { reloadRepositoryScope() }
                 syncProcessor.synchronize(
                     uploader = { item -> syncRepository.upload(item) },
@@ -189,7 +201,7 @@ class MainActivity : AppCompatActivity() {
         toolbar.addView(button("☰").apply {
             minWidth = dp(48); setOnClickListener { drawer.openDrawer(Gravity.LEFT) }
         })
-        pageTitle = label("Dashboard", 21f).apply { setTextColor(if (dark) Color.WHITE else Color.rgb(25, 42, 65)) }
+        pageTitle = label("Dashboard", 21f).apply { setTextColor(titleColor) }
         toolbar.addView(pageTitle, LinearLayout.LayoutParams(0, -2, 1f))
         toolbar.addView(label("₱", 24f))
         main.addView(toolbar)
@@ -239,7 +251,8 @@ class MainActivity : AppCompatActivity() {
     private fun buildDrawer(): View {
         val menu = vertical().apply {
             setPadding(dp(18), dp(34), dp(12), dp(18))
-            setBackgroundColor(if (dark) Color.rgb(31, 40, 50) else Color.WHITE)
+            setBackgroundColor(drawerBackground)
+            minimumHeight = resources.displayMetrics.heightPixels
         }
         menu.addView(label("MONEYTRACK PH", 13f))
         menu.addView(label("Your personal finance workspace", 12f))
@@ -266,7 +279,11 @@ class MainActivity : AppCompatActivity() {
             }
             menu.addView(item)
         }
-        return ScrollView(this).apply { addView(menu) }
+        return ScrollView(this).apply {
+            fillViewport = true
+            setBackgroundColor(drawerBackground)
+            addView(menu, ScrollView.LayoutParams(-1, -1))
+        }
     }
 
     private fun observeData() {
@@ -301,7 +318,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderDashboard() {
-        page.addView(label("Good day 👋", 25f))
+        val greeting = horizontal()
+        greeting.addView(label("Good day 👋", 25f), LinearLayout.LayoutParams(0, -2, 1f))
+        greeting.addView(userSelector())
+        page.addView(greeting)
         page.addView(label("Here's your financial snapshot", 14f))
         val inc = runBlockingValue { repository.incomesValue() }
         val exp = runBlockingValue { repository.expensesValue() }
@@ -467,22 +487,39 @@ class MainActivity : AppCompatActivity() {
             saveThemeColor("container", color)
             render()
         })
+        page.addView(label("Buttons background color (RGB)", 13f))
+        page.addView(rgbEditor("button_background", buttonBackground) { color -> buttonBackground = color; saveThemeColor("button_background", color); render() })
+        page.addView(label("Buttons font color (RGB)", 13f))
+        page.addView(rgbEditor("button_text", buttonText) { color -> buttonText = color; saveThemeColor("button_text", color); render() })
+        page.addView(label("Title color (RGB)", 13f))
+        page.addView(rgbEditor("title", titleColor) { color -> titleColor = color; saveThemeColor("title", color); buildShell(); observeData(); navigate(current) })
+        page.addView(label("Navigation drawer background color (RGB)", 13f))
+        page.addView(rgbEditor("drawer", drawerBackground) { color -> drawerBackground = color; saveThemeColor("drawer", color); buildShell(); observeData(); navigate(current) })
         page.addView(button("Reset local preferences").also { it.setOnClickListener {
             AlertDialog.Builder(this).setTitle("Reset preferences?").setMessage("Your finance records are kept; only sign-in and theme preferences reset.")
                 .setPositiveButton("Reset") { _, _ -> getSharedPreferences("moneytrack", 0).edit().clear().apply(); showLogin() }.setNegativeButton("Cancel", null).show()
         } })
         page.addView(button("Reset theme only").also { it.setOnClickListener {
             getSharedPreferences("moneytrack", 0).edit()
-                .remove("dark").remove("accent").remove("theme_background").remove("theme_text").remove("theme_accent").apply()
+                .remove("dark").remove("accent").remove("theme_background").remove("theme_text").remove("theme_accent")
+                .remove("theme_container").remove("theme_button_background").remove("theme_button_text")
+                .remove("theme_title").remove("theme_drawer").apply()
             dark = false
             accent = Color.rgb(35, 105, 175)
             dashboardContainer = Color.WHITE
+            buttonBackground = accent
+            buttonText = Color.WHITE
+            titleColor = Color.rgb(25, 42, 65)
+            drawerBackground = Color.WHITE
             buildShell(); observeData(); navigate(current)
         } })
     }
 
     private fun renderProfile() {
-        page.addView(label("My Profile", 26f)); page.addView(label("Personal account", 14f))
+        val heading = horizontal()
+        heading.addView(label("My Profile", 26f), LinearLayout.LayoutParams(0, -2, 1f))
+        heading.addView(userSelector())
+        page.addView(heading); page.addView(label("Personal account", 14f))
         val session = SessionStore(this)
         page.addView(card("NAME", session.fullName ?: "Name not set", "Your Supabase profile name"))
         page.addView(card("EMAIL", session.email ?: "Email unavailable", "Signed-in Supabase account"))
@@ -735,9 +772,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun vertical() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(18), dp(20), dp(18)) }
     private fun horizontal() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-    private fun label(value: String, size: Float) = TextView(this).apply { text=value; textSize=size; setTextColor(getThemeColor("text", if (dark) Color.LTGRAY else Color.rgb(35,45,58))); setPadding(dp(6), dp(7), dp(6), dp(7)) }
+    private fun label(value: String, size: Float) = TextView(this).apply { text=value; textSize=size; setTextColor(if (size >= 24f) titleColor else getThemeColor("text", if (dark) Color.LTGRAY else Color.rgb(35,45,58))); setPadding(dp(4), dp(4), dp(4), dp(4)) }
     private fun field(hint: String) = EditText(this).apply { this.hint=hint; setSingleLine(true); setPadding(dp(10), dp(10), dp(10), dp(10)) }
-    private fun button(value: String) = Button(this).apply { text=value; isAllCaps=false }
+    private fun button(value: String) = Button(this).apply { text=value; isAllCaps=false; setTextColor(buttonText); setBackgroundColor(buttonBackground); setPadding(dp(6), dp(2), dp(6), dp(2)); minHeight = dp(34) }
+    private fun userSelector(): Spinner {
+        val names = mutableListOf<String>()
+        names.add(SessionStore(this).fullName ?: SessionStore(this).email ?: "Current user")
+        cloudUsers.forEach { entry ->
+            val name = entry.first.substringAfter(" • ", "")
+            if (name.isNotBlank() && name != names[0]) names.add(name)
+        }
+        return Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, names.toTypedArray())
+            layoutParams = LinearLayout.LayoutParams(dp(145), dp(42))
+            setSelection(0)
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onNothingSelected(parent: AdapterView<*>?) {}
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    if (position > 0) Toast.makeText(this@MainActivity, "Select that Supabase account at login to open its private data.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
     private fun card(title: String, value: String, detail: String): LinearLayout {
         val box = vertical().apply { setPadding(dp(16), dp(14), dp(16), dp(14)); setBackgroundColor(dashboardContainer) }
         box.addView(label(title, 11f)); box.addView(label(value, 22f)); box.addView(label(detail, 12f)); return box
@@ -745,30 +801,32 @@ class MainActivity : AppCompatActivity() {
     private fun row(title: String, detail: String, color: Int, action: (() -> Unit)?): LinearLayout {
         val r = horizontal().apply { setPadding(dp(8), dp(6), dp(8), dp(6)) }
         val t = label(title, 15f).apply { setTextColor(color) }; r.addView(vertical().apply { addView(t); addView(label(detail, 12f)) }, LinearLayout.LayoutParams(0,-2,1f))
-        if (action != null) r.addView(button("Delete").also { it.setOnClickListener { action() } }); return r
+        if (action != null) r.addView(button("Delete").apply { minWidth = dp(62); textSize = 11f }.also { it.setOnClickListener { action() } }); return r
     }
     private fun transactionRow(title: String, detail: String, color: Int, canEdit: Boolean, canDelete: Boolean, edit: () -> Unit, delete: () -> Unit): LinearLayout {
         val r = horizontal().apply { setPadding(dp(8), dp(6), dp(8), dp(6)) }
         val t = label(title, 15f).apply { setTextColor(color) }
         r.addView(vertical().apply { addView(t); addView(label(detail, 12f)) }, LinearLayout.LayoutParams(0, -2, 1f))
-        if (canEdit) r.addView(button("Edit").also { it.setOnClickListener { edit() } })
-        if (canDelete) r.addView(button("Delete").also { it.setOnClickListener { delete() } })
+        if (canEdit) r.addView(button("Edit").apply { minWidth = dp(52); textSize = 11f }.also { it.setOnClickListener { edit() } })
+        if (canDelete) r.addView(button("Delete").apply { minWidth = dp(62); textSize = 11f }.also { it.setOnClickListener { delete() } })
         return r
     }
     private fun rgbEditor(name: String, initial: Int, changed: (Int) -> Unit): LinearLayout {
-        val box = horizontal()
+        val box = horizontal().apply { setPadding(0, dp(2), 0, dp(2)) }
         val preview = TextView(this).apply {
             text = "Preview"
             gravity = Gravity.CENTER
             setTextColor(if (name == "text") initial else Color.WHITE)
             setBackgroundColor(if (name == "text") getThemeColor("background", Color.DKGRAY) else initial)
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        val red = field("R").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(Color.red(initial).toString()) }
-        val green = field("G").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(Color.green(initial).toString()) }
-        val blue = field("B").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(Color.blue(initial).toString()) }
+        val red = field("R").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(Color.red(initial).toString()); textSize = 11f }
+        val green = field("G").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(Color.green(initial).toString()); textSize = 11f }
+        val blue = field("B").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(Color.blue(initial).toString()); textSize = 11f }
+        val transparent = CheckBox(this).apply { text = "Transparent"; textSize = 10f; isChecked = Color.alpha(initial) == 0 }
         fun previewColor() {
-            val color = Color.rgb(red.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0,
+            val color = Color.argb(if (transparent.isChecked) 0 else 255,
+                red.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0,
                 green.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0,
                 blue.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0)
             if (name == "text") {
@@ -781,14 +839,16 @@ class MainActivity : AppCompatActivity() {
         }
         val watcher = SimpleTextWatcher { previewColor() }
         red.addTextChangedListener(watcher); green.addTextChangedListener(watcher); blue.addTextChangedListener(watcher)
+        transparent.setOnCheckedChangeListener { _, _ -> previewColor() }
         val apply = button("Apply")
         apply.setOnClickListener {
-            val color = Color.rgb(red.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0,
+            val color = Color.argb(if (transparent.isChecked) 0 else 255,
+                red.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0,
                 green.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0,
                 blue.text.toString().toIntOrNull()?.coerceIn(0, 255) ?: 0)
             changed(color)
         }
-        box.addView(preview, weight()); box.addView(red, weight()); box.addView(green, weight()); box.addView(blue, weight()); box.addView(apply)
+        box.addView(preview, weight()); box.addView(red, weight()); box.addView(green, weight()); box.addView(blue, weight()); box.addView(transparent); box.addView(apply)
         return box
     }
     private fun getThemeColor(name: String, fallback: Int): Int =
