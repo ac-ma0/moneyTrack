@@ -24,6 +24,9 @@ class SessionStore(context: Context) {
     var userId: String?
         get() = prefs.getString("user_id", null)
         set(value) { if (value == null) prefs.edit().remove("user_id").apply() else prefs.edit().putString("user_id", value).apply() }
+    var refreshToken: String?
+        get() = prefs.getString("refresh_token", null)
+        set(value) { if (value == null) prefs.edit().remove("refresh_token").apply() else prefs.edit().putString("refresh_token", value).apply() }
     fun clear() { prefs.edit().clear().apply() }
 }
 
@@ -33,8 +36,38 @@ class SupabaseSyncRepository(
     private val session: SessionStore,
     private val client: OkHttpClient = OkHttpClient()
 ) {
+    var lastError: String? = null
+        private set
+
+    suspend fun refreshSession(): Boolean = withContext(Dispatchers.IO) {
+        val refresh = session.refreshToken ?: return@withContext false
+        val body = JSONObject().put("refresh_token", refresh).toString()
+        val request = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/auth/v1/token?grant_type=refresh_token")
+            .addHeader("apikey", apiKey)
+            .addHeader("Content-Type", "application/json")
+            .post(body.toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                lastError = "Session refresh failed (${response.code}). Sign in again."
+                return@withContext false
+            }
+            val json = JSONObject(text)
+            val access = json.optString("access_token", "")
+            if (access.isEmpty()) return@withContext false
+            session.accessToken = access
+            json.optString("refresh_token", "").takeIf { it.isNotEmpty() }?.let { session.refreshToken = it }
+            true
+        }
+    }
+
     suspend fun upload(item: SyncQueue): Boolean = withContext(Dispatchers.IO) {
-        val token = session.accessToken ?: return@withContext false
+        val token = session.accessToken ?: run {
+            lastError = "No Supabase access token. Sign in again."
+            return@withContext false
+        }
         val table = when (item.recordType) {
             "income" -> "income"
             "expense" -> "expenses"
@@ -54,9 +87,12 @@ class SupabaseSyncRepository(
             try {
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) return@withContext true
+                    val detail = response.body?.string().orEmpty()
+                    lastError = "Upload $table failed (${response.code}): ${detail.take(180)}"
                     if (response.code !in listOf(408, 425, 429) && response.code < 500) return@withContext false
                 }
             } catch (_: IOException) {
+                lastError = "Upload connection failed."
                 if (attempt == 2) return@withContext false
             }
             delay((attempt + 1) * 250L)
@@ -65,25 +101,53 @@ class SupabaseSyncRepository(
     }
 
     suspend fun pull(table: String, userId: String, updatedAfter: Long = 0L): String = withContext(Dispatchers.IO) {
-        val token = session.accessToken ?: throw IOException("No authenticated Supabase session")
+        val token = session.accessToken ?: throw IOException("No Supabase access token. Sign in again.")
         val encodedTime = java.net.URLEncoder.encode(iso(updatedAfter), "UTF-8")
         val encodedUser = java.net.URLEncoder.encode(userId, "UTF-8")
+        val url = baseUrl.trimEnd('/') + "/rest/v1/$table?user_id=eq.$encodedUser&updated_at=gt.$encodedTime&order=updated_at.asc"
         val request = Request.Builder()
-            .url(baseUrl.trimEnd('/') + "/rest/v1/$table?user_id=eq.$encodedUser&updated_at=gt.$encodedTime&order=updated_at.asc")
+            .url(url)
             .addHeader("apikey", apiKey)
             .addHeader("Authorization", "Bearer " + token)
             .addHeader("Accept", "application/json")
             .get()
             .build()
         client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("Pull failed ${response.code}: ${response.body?.string().orEmpty()}")
+            if (!response.isSuccessful) {
+                val detail = response.body?.string().orEmpty()
+                if (response.code == 400) {
+                    return@withContext pullLegacy(table, encodedUser, token)
+                }
+                throw IOException("Fetch $table failed (${response.code}): ${detail.take(180)}")
+            }
+            response.body?.string().orEmpty()
+        }
+    }
+
+    private fun pullLegacy(table: String, encodedUser: String, token: String): String {
+        val request = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/rest/v1/$table?user_id=eq.$encodedUser")
+            .addHeader("apikey", apiKey)
+            .addHeader("Authorization", "Bearer " + token)
+            .addHeader("Accept", "application/json")
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("Fetch $table failed (${response.code}): ${response.body?.string().orEmpty().take(180)}")
+            }
             response.body?.string().orEmpty()
         }
     }
 
     suspend fun pullAll(db: FinanceDatabase, userId: String, updatedAfter: Long = 0L) {
-        listOf("income", "expenses", "debts", "debt_monthly_payments").forEach { table ->
-            applyRows(db, userId, table, JSONArray(pull(table, userId, updatedAfter)))
+        try {
+            listOf("income", "expenses", "debts", "debt_monthly_payments").forEach { table ->
+                applyRows(db, userId, table, JSONArray(pull(table, userId, updatedAfter)))
+            }
+        } catch (error: Exception) {
+            lastError = error.message ?: "Cloud fetch failed."
+            throw error
         }
     }
 

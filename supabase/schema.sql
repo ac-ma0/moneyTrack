@@ -45,6 +45,8 @@ alter table public.debts add column if not exists notes text;
 alter table public.debts add column if not exists status text not null default 'active';
 alter table public.debts add column if not exists updated_at timestamptz default now();
 alter table public.debts add column if not exists deleted boolean not null default false;
+alter table public.debt_monthly_payments add column if not exists updated_at timestamptz default now();
+alter table public.debt_monthly_payments add column if not exists deleted boolean not null default false;
 
 -- Final compatibility pass for databases created from an older schema.
 -- Run these checks before any view, policy, index, or trigger references.

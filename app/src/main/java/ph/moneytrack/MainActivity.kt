@@ -75,6 +75,7 @@ class MainActivity : AppCompatActivity() {
                     is AuthResult.Success -> {
                         val session = SessionStore(this@MainActivity)
                         SupabaseAuth.accessToken(result.body)?.let { session.accessToken = it }
+                        SupabaseAuth.refreshToken(result.body)?.let { session.refreshToken = it }
                         SupabaseAuth.userId(result.body)?.let {
                             session.userId = it
                             getSharedPreferences("moneytrack", 0).edit().putString("user_id", it).apply()
@@ -94,6 +95,7 @@ class MainActivity : AppCompatActivity() {
                     is AuthResult.Success -> {
                         val session = SessionStore(this@MainActivity)
                         SupabaseAuth.accessToken(result.body)?.let { session.accessToken = it }
+                        SupabaseAuth.refreshToken(result.body)?.let { session.refreshToken = it }
                         SupabaseAuth.userId(result.body)?.let { session.userId = it; getSharedPreferences("moneytrack", 0).edit().putString("user_id", it).apply() }
                         if (session.accessToken != null) enterApp() else message.text = "Account created. Check your email, then sign in."
                     }
@@ -117,6 +119,7 @@ class MainActivity : AppCompatActivity() {
         )
         syncProcessor = SyncProcessor(FinanceDatabase.create(this))
         syncTrigger = ConnectivitySyncTrigger(this) {
+            syncRepository.refreshSession()
             syncProcessor.synchronize(
                 uploader = { item -> syncRepository.upload(item) },
                 puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
@@ -125,6 +128,7 @@ class MainActivity : AppCompatActivity() {
         try {
             syncTrigger?.start()
             scope.launch(Dispatchers.IO) {
+                syncRepository.refreshSession()
                 syncProcessor.synchronize(
                     uploader = { item -> syncRepository.upload(item) },
                     puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
@@ -173,6 +177,7 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "Syncing local changes and fetching cloud data...", Toast.LENGTH_SHORT).show()
         scope.launch {
             val success = withContext(Dispatchers.IO) {
+                syncRepository.refreshSession()
                 syncProcessor.synchronize(
                     uploader = { item -> syncRepository.upload(item) },
                     puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
@@ -181,7 +186,7 @@ class MainActivity : AppCompatActivity() {
             render()
             Toast.makeText(
                 this@MainActivity,
-                if (success) "Sync complete." else "Sync incomplete. Check your connection and Supabase session.",
+                if (success) "Sync complete." else "Sync incomplete: ${syncRepository.lastError ?: "check Supabase schema, RLS, and session."}",
                 Toast.LENGTH_LONG
             ).show()
         }

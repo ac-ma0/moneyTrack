@@ -22,6 +22,9 @@ class SupabaseAuth(
         fun accessToken(body: String): String? =
             runCatching { org.json.JSONObject(body).optString("access_token", "").takeIf { it.isNotEmpty() } }.getOrNull()
 
+        fun refreshToken(body: String): String? =
+            runCatching { org.json.JSONObject(body).optString("refresh_token", "").takeIf { it.isNotEmpty() } }.getOrNull()
+
         fun userId(body: String): String? =
             runCatching {
                 org.json.JSONObject(body).optJSONObject("user")?.optString("id", "")?.takeIf { it.isNotEmpty() }
