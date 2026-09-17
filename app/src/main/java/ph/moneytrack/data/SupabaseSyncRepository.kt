@@ -5,6 +5,10 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -72,9 +76,10 @@ class SupabaseSyncRepository(
 
 class ConnectivitySyncTrigger(context: Context, private val drain: suspend () -> Unit) {
     private val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val callbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) { drain() }
+            callbackScope.launch { drain() }
         }
     }
     fun start() {
@@ -84,5 +89,6 @@ class ConnectivitySyncTrigger(context: Context, private val drain: suspend () ->
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try { manager.unregisterNetworkCallback(callback) } catch (_: IllegalArgumentException) { }
         }
+        callbackScope.coroutineContext.cancel()
     }
 }

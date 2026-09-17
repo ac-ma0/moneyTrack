@@ -103,11 +103,13 @@ class MainActivity : AppCompatActivity() {
         )
         val processor = SyncProcessor(FinanceDatabase.create(this))
         syncTrigger = ConnectivitySyncTrigger(this) {
-            processor.drain { item -> syncRepository.upload(item) }
+            processor.drain(uploader = { item -> syncRepository.upload(item) })
         }
         try {
             syncTrigger?.start()
-            scope.launch(Dispatchers.IO) { processor.drain { item -> syncRepository.upload(item) } }
+            scope.launch(Dispatchers.IO) {
+                processor.drain(uploader = { item -> syncRepository.upload(item) })
+            }
         } catch (_: RuntimeException) {
             syncTrigger = null
         }
