@@ -113,7 +113,7 @@ class SupabaseSyncRepository(
             .url(baseUrl.trimEnd('/') + "/rest/v1/user_permissions?on_conflict=user_id,permission")
             .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer " + token)
             .addHeader("Prefer", "resolution=merge-duplicates,return=minimal").addHeader("Content-Type", "application/json")
-            .post(JSONObject().put("user_id", userId).put("permission", permission).put("granted_by", session.userId).toString().toRequestBody("application/json")).build()
+            .post(JSONObject().put("user_id", userId).put("permission", permission).put("granted_by", session.userId).toString().toRequestBody("application/json".toMediaType())).build()
         else Request.Builder()
             .url(baseUrl.trimEnd('/') + "/rest/v1/user_permissions?user_id=eq.$userId&permission=eq.$encodedPermission")
             .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer " + token).delete().build()

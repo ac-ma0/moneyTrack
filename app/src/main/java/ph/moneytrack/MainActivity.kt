@@ -573,22 +573,6 @@ class MainActivity : AppCompatActivity() {
             setSelection(LocalRole.values().indexOf(runCatching { LocalRole.valueOf(parts?.getOrElse(1) { "VIEWER" } ?: "VIEWER") }.getOrDefault(LocalRole.VIEWER)))
         }
 
-        private fun addSupabaseUser() {
-            val email = field("Email")
-            val password = field("Temporary password").apply {
-                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            }
-            val box = vertical(); box.addView(email); box.addView(password)
-            AlertDialog.Builder(this).setTitle("Add Supabase user").setView(box)
-                .setPositiveButton("Create") { _, _ ->
-                    scope.launch {
-                        val created = syncRepository.createUser(email.text.toString().trim(), password.text.toString())
-                        Toast.makeText(this@MainActivity,
-                            if (created) "User created. Assign role and permissions after refreshing users." else syncRepository.lastError ?: "User creation failed.",
-                            Toast.LENGTH_LONG).show()
-                    }
-                }.setNegativeButton("Cancel", null).show()
-        }
         val box = vertical(); box.addView(name); box.addView(role)
         AlertDialog.Builder(this)
             .setTitle(if (existing == null) "Add user" else "Edit user")
@@ -604,6 +588,23 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun addSupabaseUser() {
+        val email = field("Email")
+        val password = field("Temporary password").apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val box = vertical(); box.addView(email); box.addView(password)
+        AlertDialog.Builder(this).setTitle("Add Supabase user").setView(box)
+            .setPositiveButton("Create") { _, _ ->
+                scope.launch {
+                    val created = syncRepository.createUser(email.text.toString().trim(), password.text.toString())
+                    Toast.makeText(this@MainActivity,
+                        if (created) "User created. Assign role and permissions after refreshing users." else syncRepository.lastError ?: "User creation failed.",
+                        Toast.LENGTH_LONG).show()
+                }
+            }.setNegativeButton("Cancel", null).show()
     }
 
     private fun addTransaction(income: Boolean, existing: Any? = null) {
