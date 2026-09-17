@@ -3,6 +3,7 @@ package ph.moneytrack.data
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import org.json.JSONObject
 
 class FinanceRepository(private val db: FinanceDatabase, private val userId: String) {
     val incomes: Flow<List<Income>> = db.income().observe(userId)
@@ -23,13 +24,37 @@ class FinanceRepository(private val db: FinanceDatabase, private val userId: Str
     suspend fun setDebtStatus(id:String,status:String) = write("status","debt",id,status) { db.debt().setStatus(id,userId,status) }
     suspend fun savePayment(value:DebtMonthlyPayment) = write("upsert","debt_monthly_payment",value.id,value) { db.payment().upsert(value) }
     suspend fun setPaymentStatus(id:String,status:String,amount:Long) = write("status","debt_monthly_payment",id,status) { db.payment().setStatus(id,userId,status,amount) }
+    suspend fun deletePayment(id:String) = write("delete","debt_monthly_payment",id,null) { db.payment().softDelete(id,userId) }
+    suspend fun payments(debtId: String): List<DebtMonthlyPayment> = db.payment().observe(debtId, userId).first()
 
     private suspend fun write(operation:String,type:String,id:String,newValue:Any?, action:suspend()->Unit) {
         db.withTransaction {
+            val old = when (type) {
+                "income" -> db.income().get(id,userId)?.toJson()
+                "expense" -> db.expense().get(id,userId)?.toJson()
+                "debt" -> db.debt().get(id,userId)?.toJson()
+                "debt_monthly_payment" -> db.payment().get(id,userId)?.toJson()
+                else -> null
+            }
             action()
-            val payload = newValue?.toString()
-            db.audit().insert(AuditLog(userId=userId,action=operation,recordType=type,recordId=id,oldValue=null,newValue=payload))
-            db.sync().enqueue(SyncQueue(userId=userId,operation=operation,recordType=type,recordId=id,payload=payload ?: ""))
+            val payload = newValue?.toJson() ?: JSONObject().apply {
+                put("id", id)
+                put("user_id", userId)
+                put("deleted", true)
+                put("updated_at", System.currentTimeMillis())
+            }.toString()
+            db.audit().insert(AuditLog(userId=userId,action=operation,recordType=type,recordId=id,oldValue=old,newValue=payload))
+            db.sync().enqueue(SyncQueue(userId=userId,operation=operation,recordType=type,recordId=id,payload=payload))
         }
     }
+
+    private fun Any.toJson(): String = JSONObject().apply {
+        when (this@toJson) {
+            is Income -> { put("id",id); put("user_id",userId); put("title",title); put("amount",amount/100.0); put("occurred_on",occurredOn); put("category",category); put("notes",notes); put("updated_at",updatedAt); put("deleted",deleted) }
+            is Expense -> { put("id",id); put("user_id",userId); put("title",title); put("amount",amount/100.0); put("occurred_on",occurredOn); put("category",category); put("notes",notes); put("updated_at",updatedAt); put("deleted",deleted) }
+            is Debt -> { put("id",id); put("user_id",userId); put("person",person); put("principal_amount",principalAmount/100.0); put("interest_rate",interestRate); put("interest_type",interestType); put("number_of_months",numberOfMonths); put("start_date",startDate); put("due_date",dueDate); put("monthly_expected_payment",monthlyExpectedPayment?.div(100.0)); put("total_payable",totalPayable?.div(100.0)); put("notes",notes); put("status",status); put("updated_at",updatedAt); put("deleted",deleted) }
+            is DebtMonthlyPayment -> { put("id",id); put("debt_id",debtId); put("user_id",userId); put("payment_month",paymentMonth); put("amount",amount/100.0); put("status",status); put("notes",notes); put("updated_at",updatedAt); put("deleted",deleted) }
+            else -> put("value",toString())
+        }
+    }.toString()
 }

@@ -26,9 +26,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var drawer: DrawerLayout
     private lateinit var page: LinearLayout
     private lateinit var pageTitle: TextView
+    private var syncTrigger: ConnectivitySyncTrigger? = null
     private var observing = false
     private var current = "Dashboard"
     private var dark = false
+    private var accent = Color.rgb(35, 105, 175)
+    private val permission: LocalPermission
+        get() = LocalPermission(runCatching { LocalRole.valueOf(getSharedPreferences("moneytrack", 0).getString("role", "ADMIN") ?: "ADMIN") }.getOrDefault(LocalRole.ADMIN))
     private val userId by lazy {
         val p = getSharedPreferences("moneytrack", 0)
         p.getString("user_id", null) ?: UUID.randomUUID().toString().also {
@@ -39,10 +43,12 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         dark = getSharedPreferences("moneytrack", 0).getBoolean("dark", false)
+        accent = getSharedPreferences("moneytrack", 0).getInt("accent", accent)
         if (getSharedPreferences("moneytrack", 0).getBoolean("signed_in", false)) enterApp() else showLogin()
     }
 
     override fun onDestroy() {
+        syncTrigger?.stop()
         scope.cancel()
         super.onDestroy()
     }
@@ -63,7 +69,11 @@ class MainActivity : AppCompatActivity() {
             signIn.isEnabled = false
             scope.launch {
                 when (val result = auth.signIn(email.text.toString(), password.text.toString())) {
-                    is AuthResult.Success -> enterApp()
+                    is AuthResult.Success -> {
+                        val token = org.json.JSONObject(result.body).optString("access_token", "")
+                        if (token.isNotEmpty()) SessionStore(this@MainActivity).accessToken = token
+                        enterApp()
+                    }
                     is AuthResult.Failure -> { message.text = result.error.message ?: "Sign in failed"; signIn.isEnabled = true }
                 }
             }
@@ -86,6 +96,21 @@ class MainActivity : AppCompatActivity() {
     private fun enterApp() {
         getSharedPreferences("moneytrack", 0).edit().putBoolean("signed_in", true).apply()
         repository = FinanceRepository(FinanceDatabase.create(this), userId)
+        val syncRepository = SupabaseSyncRepository(
+            BuildConfig.SUPABASE_URL,
+            BuildConfig.SUPABASE_ANON_KEY,
+            SessionStore(this)
+        )
+        val processor = SyncProcessor(FinanceDatabase.create(this))
+        syncTrigger = ConnectivitySyncTrigger(this) {
+            processor.drain { item -> syncRepository.upload(item) }
+        }
+        try {
+            syncTrigger?.start()
+            scope.launch(Dispatchers.IO) { processor.drain { item -> syncRepository.upload(item) } }
+        } catch (_: RuntimeException) {
+            syncTrigger = null
+        }
         buildShell()
         observeData()
         navigate("Dashboard")
@@ -97,7 +122,7 @@ class MainActivity : AppCompatActivity() {
         val toolbar = horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            setBackgroundColor(if (dark) Color.rgb(31, 40, 50) else Color.WHITE)
+            setBackgroundColor(accent)
         }
         toolbar.addView(button("☰").apply {
             minWidth = dp(48); setOnClickListener { drawer.openDrawer(Gravity.LEFT) }
@@ -121,7 +146,7 @@ class MainActivity : AppCompatActivity() {
         menu.addView(label("MONEYTRACK PH", 13f))
         menu.addView(label("Your personal finance workspace", 12f))
         val items = arrayOf("Dashboard", "Income", "Expenses", "Debt Tracker", "History", "Reports",
-            "Users", "Settings", "My Profile", "Logout")
+            "Users", "Settings", "My Profile", "Logout").filter { it != "Users" || permission.canManageUsers }
         items.forEach { name ->
             val item = button(if (name == current) "●  $name" else "   $name").apply {
                 gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
@@ -129,6 +154,9 @@ class MainActivity : AppCompatActivity() {
                     drawer.closeDrawer(Gravity.LEFT)
                     if (name == "Logout") {
                         getSharedPreferences("moneytrack", 0).edit().putBoolean("signed_in", false).apply()
+                        SessionStore(this@MainActivity).clear()
+                        syncTrigger?.stop()
+                        syncTrigger = null
                         observing = false
                         showLogin()
                     } else navigate(name)
@@ -202,7 +230,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderTransactions(income: Boolean) {
         page.addView(label(if (income) "Income" else "Expenses", 26f))
         page.addView(label(if (income) "Keep every inflow in one place." else "See where your money goes.", 14f))
-        page.addView(button(if (income) "+ Add income" else "+ Add expense").also { it.setOnClickListener { addTransaction(income) } })
+        if (permission.canWrite) page.addView(button(if (income) "+ Add income" else "+ Add expense").also { it.setOnClickListener { addTransaction(income) } })
         val search = field("Search ${if (income) "income" else "expenses"}…")
         page.addView(search)
         val list = vertical(); page.addView(list)
@@ -213,17 +241,21 @@ class MainActivity : AppCompatActivity() {
                 runBlockingValue { repository.incomesValue() }
                     .filter { it.title.contains(query, true) }
                     .forEach { item ->
-                        list.addView(row(item.title, "₱${money(item.amount)}  •  ${item.occurredOn}", Color.rgb(34, 145, 92)) {
-                            deleteIncome(item.id)
-                        })
+                    list.addView(row(item.title, "₱${money(item.amount)}  •  ${item.occurredOn}${item.category?.let { " • $it" } ?: ""}", Color.rgb(34, 145, 92)) {
+                        AlertDialog.Builder(this).setItems(arrayOf("Edit", "Delete")) { _, which ->
+                            if (which == 0) addTransaction(true, item) else deleteIncome(item.id)
+                        }.show()
+                    })
                     }
             } else {
                 runBlockingValue { repository.expensesValue() }
                     .filter { it.title.contains(query, true) }
                     .forEach { item ->
-                        list.addView(row(item.title, "₱${money(item.amount)}  •  ${item.occurredOn}", Color.rgb(205, 71, 71)) {
-                            deleteExpense(item.id)
-                        })
+                    list.addView(row(item.title, "₱${money(item.amount)}  •  ${item.occurredOn}${item.category?.let { " • $it" } ?: ""}", Color.rgb(205, 71, 71)) {
+                        AlertDialog.Builder(this).setItems(arrayOf("Edit", "Delete")) { _, which ->
+                            if (which == 0) addTransaction(false, item) else deleteExpense(item.id)
+                        }.show()
+                    })
                     }
             }
             if (list.childCount == 0) list.addView(label("No matching records yet.", 14f))
@@ -234,11 +266,12 @@ class MainActivity : AppCompatActivity() {
     private fun renderDebts() {
         page.addView(label("Debt Tracker", 26f))
         page.addView(label("Track borrowers, due dates, and monthly commitments.", 14f))
-        page.addView(button("+ Add debt").also { it.setOnClickListener { addDebt() } })
+        if (permission.canWrite) page.addView(button("+ Add debt").also { it.setOnClickListener { addDebt() } })
         runBlockingValue { repository.debtsValue() }.forEach { debt ->
             val box = card(debt.person, "₱${money(debt.principalAmount)}  •  ${debt.status.toUpperCase(Locale.US)}",
                 "Started ${debt.startDate}${debt.dueDate?.let { "  •  Due $it" } ?: ""}")
             val actions = horizontal()
+            actions.addView(button("Edit").also { it.setOnClickListener { editDebt(debt) } }, weight())
             actions.addView(button(if (debt.status == "paid") "Mark active" else "Mark paid").also {
                 it.setOnClickListener { scope.launch { repository.setDebtStatus(debt.id, if (debt.status == "paid") "active" else "paid") } }
             }, weight())
@@ -291,6 +324,7 @@ class MainActivity : AppCompatActivity() {
         val i = inc.sumByLong { it.amount }; val e = exp.sumByLong { it.amount }
         page.addView(card("CASH FLOW", "₱${money(i-e)}", "Income ₱${money(i)} minus expenses ₱${money(e)}"))
         page.addView(card("RECORDS", "${inc.size + exp.size}", "${inc.size} income entries • ${exp.size} expense entries"))
+        page.addView(ChartView(this, i, e), LinearLayout.LayoutParams(-1, dp(190)))
         page.addView(label(if (i >= e) "You're spending within recorded income." else "Recorded expenses exceed income—review your expense list.", 15f))
     }
 
@@ -301,6 +335,15 @@ class MainActivity : AppCompatActivity() {
             dark = checked; getSharedPreferences("moneytrack", 0).edit().putBoolean("dark", dark).apply(); buildShell(); observeData(); navigate(current)
         }
         page.addView(theme)
+        page.addView(label("Accent color", 14f))
+        val accents = horizontal()
+        listOf(Color.rgb(35,105,175), Color.rgb(34,145,92), Color.rgb(155,75,170), Color.rgb(205,71,71)).forEach { color ->
+            accents.addView(button("●").apply {
+                setTextColor(color)
+                setOnClickListener { accent = color; getSharedPreferences("moneytrack", 0).edit().putInt("accent", color).apply(); buildShell(); observeData(); navigate(current) }
+            }, weight())
+        }
+        page.addView(accents)
         page.addView(button("Reset local preferences").also { it.setOnClickListener {
             AlertDialog.Builder(this).setTitle("Reset preferences?").setMessage("Your finance records are kept; only sign-in and theme preferences reset.")
                 .setPositiveButton("Reset") { _, _ -> getSharedPreferences("moneytrack", 0).edit().clear().apply(); showLogin() }.setNegativeButton("Cancel", null).show()
@@ -320,35 +363,53 @@ class MainActivity : AppCompatActivity() {
         page.addView(label("Permission-aware: only owners can manage workspace settings.", 13f))
     }
 
-    private fun addTransaction(income: Boolean) {
+    private fun addTransaction(income: Boolean, existing: Any? = null) {
         val title = field("Description"); val amount = field("Amount in PHP").apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         }
-        val box = vertical(); box.addView(title); box.addView(amount)
+        val date = field("Date (YYYY-MM-DD)").apply { setText(if (existing is Income) existing.occurredOn else if (existing is Expense) existing.occurredOn else today()) }
+        val category = field("Category"); val notes = field("Notes")
+        if (existing is Income) { title.setText(existing.title); amount.setText((existing.amount / 100.0).toString()); category.setText(existing.category ?: ""); notes.setText(existing.notes ?: "") }
+        if (existing is Expense) { title.setText(existing.title); amount.setText((existing.amount / 100.0).toString()); category.setText(existing.category ?: ""); notes.setText(existing.notes ?: "") }
+        val box = vertical(); box.addView(title); box.addView(amount); box.addView(date); box.addView(category); box.addView(notes)
         AlertDialog.Builder(this).setTitle(if (income) "Add income" else "Add expense").setView(box)
             .setPositiveButton("Save") { _, _ ->
                 val cents = ((amount.text.toString().toDoubleOrNull() ?: 0.0) * 100).toLong()
                 if (title.text.toString().trim().isEmpty() || cents <= 0) return@setPositiveButton
-                scope.launch { if (income) repository.saveIncome(Income(userId=userId,title=title.text.toString(),amount=cents,occurredOn=today()))
-                else repository.saveExpense(Expense(userId=userId,title=title.text.toString(),amount=cents,occurredOn=today())) }
+                scope.launch { if (income) repository.saveIncome(Income(id = (existing as? Income)?.id ?: UUID.randomUUID().toString(), userId=userId,title=title.text.toString(),amount=cents,occurredOn=date.text.toString(),category=category.text.toString().trim().takeIf { it.isNotEmpty() },notes=notes.text.toString().takeIf { it.isNotEmpty() }))
+                else repository.saveExpense(Expense(id = (existing as? Expense)?.id ?: UUID.randomUUID().toString(), userId=userId,title=title.text.toString(),amount=cents,occurredOn=date.text.toString(),category=category.text.toString().trim().takeIf { it.isNotEmpty() },notes=notes.text.toString().takeIf { it.isNotEmpty() })) }
             }.setNegativeButton("Cancel", null).show()
     }
 
-    private fun addDebt() {
+    private fun addDebt(existing: Debt? = null) {
         val person = field("Borrower / debtor"); val principal = field("Principal amount").apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         }; val monthly = field("Monthly payment (optional)").apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         }
-        val box = vertical(); box.addView(person); box.addView(principal); box.addView(monthly)
+        val rate = field("Interest rate %"); val months = field("Number of months").apply { inputType = InputType.TYPE_CLASS_NUMBER }; val type = field("Interest type: flat, simple, reducing")
+        val due = field("Due date (YYYY-MM-DD)"); val notes = field("Notes")
+        existing?.let {
+            person.setText(it.person); principal.setText((it.principalAmount / 100.0).toString())
+            rate.setText(it.interestRate.toString()); type.setText(it.interestType); months.setText(it.numberOfMonths.toString())
+            monthly.setText(it.monthlyExpectedPayment?.let { amount -> (amount / 100.0).toString() } ?: "")
+            due.setText(it.dueDate ?: ""); notes.setText(it.notes ?: "")
+        }
+        val box = vertical(); box.addView(person); box.addView(principal); box.addView(rate); box.addView(type); box.addView(months); box.addView(monthly); box.addView(due); box.addView(notes)
         AlertDialog.Builder(this).setTitle("Add debt").setView(box).setPositiveButton("Save") { _, _ ->
             val cents = ((principal.text.toString().toDoubleOrNull() ?: 0.0) * 100).toLong()
             val monthlyCents = ((monthly.text.toString().toDoubleOrNull() ?: 0.0) * 100).toLong().takeIf { it > 0 }
             if (person.text.toString().trim().isNotEmpty() && cents > 0) scope.launch {
-                repository.saveDebt(Debt(userId=userId,person=person.text.toString(),principalAmount=cents,startDate=today(),monthlyExpectedPayment=monthlyCents))
+                val n = (months.text.toString().toIntOrNull() ?: 1).coerceAtLeast(1)
+                val interest = rate.text.toString().toDoubleOrNull() ?: 0.0
+                val kind = type.text.toString().trim().ifEmpty { "flat" }
+                val total = DebtCalculator.total(cents, interest, kind, n)
+                repository.saveDebt(Debt(id=existing?.id ?: UUID.randomUUID().toString(),userId=userId,person=person.text.toString(),principalAmount=cents,interestRate=interest,interestType=kind,numberOfMonths=n,startDate=existing?.startDate ?: today(),dueDate=due.text.toString().takeIf { it.isNotBlank() },monthlyExpectedPayment=monthlyCents ?: DebtCalculator.monthly(total,n),totalPayable=total,notes=notes.text.toString().takeIf { it.isNotBlank() }))
             }
         }.setNegativeButton("Cancel", null).show()
     }
+
+    private fun editDebt(debt: Debt) { addDebt(debt) }
 
     private fun deleteIncome(id: String) { scope.launch { repository.deleteIncome(id) } }
     private fun deleteExpense(id: String) { scope.launch { repository.deleteExpense(id) } }

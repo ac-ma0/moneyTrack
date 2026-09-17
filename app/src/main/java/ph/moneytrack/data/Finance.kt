@@ -4,19 +4,24 @@ import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
+enum class LocalRole { ADMIN, EDITOR, VIEWER }
+data class LocalPermission(val role: LocalRole, val canRead: Boolean = true,
+                           val canWrite: Boolean = role != LocalRole.VIEWER,
+                           val canManageUsers: Boolean = role == LocalRole.ADMIN)
+
 private fun id() = UUID.randomUUID().toString()
 
 @Entity(tableName = "income")
 data class Income(
     @PrimaryKey val id: String = id(), val userId: String, val title: String,
-    val amount: Long, val occurredOn: String, val notes: String? = null,
+    val amount: Long, val occurredOn: String, val category: String? = null, val notes: String? = null,
     val updatedAt: Long = System.currentTimeMillis(), val deleted: Boolean = false
 )
 
 @Entity(tableName = "expenses")
 data class Expense(
     @PrimaryKey val id: String = id(), val userId: String, val title: String,
-    val amount: Long, val occurredOn: String, val notes: String? = null,
+    val amount: Long, val occurredOn: String, val category: String? = null, val notes: String? = null,
     val updatedAt: Long = System.currentTimeMillis(), val deleted: Boolean = false
 )
 
@@ -40,6 +45,22 @@ data class DebtMonthlyPayment(
     val deleted: Boolean = false
 )
 
+object DebtCalculator {
+    fun total(principal: Long, ratePercent: Double, type: String, months: Int): Long {
+        val n = months.coerceAtLeast(1)
+        val rate = ratePercent / 100.0
+        val value = when (type) {
+            "reducing" -> if (rate == 0.0) principal.toDouble()
+            else principal * (rate / 12.0) * Math.pow(1 + rate / 12.0, n.toDouble()) /
+                    (Math.pow(1 + rate / 12.0, n.toDouble()) - 1) * n
+            "simple" -> principal * (1 + rate * n / 12.0)
+            else -> principal * (1 + rate)
+        }
+        return Math.round(value)
+    }
+    fun monthly(total: Long, months: Int): Long = Math.round(total.toDouble() / months.coerceAtLeast(1))
+}
+
 @Entity(tableName = "audit_logs")
 data class AuditLog(
     @PrimaryKey val id: String = id(), val userId: String?, val action: String,
@@ -59,22 +80,27 @@ data class SyncQueue(
 @Dao interface IncomeDao {
     @Query("SELECT * FROM income WHERE userId=:userId AND deleted=0 ORDER BY occurredOn DESC") fun observe(userId: String): Flow<List<Income>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(value: Income)
+    @Query("SELECT * FROM income WHERE id=:id AND userId=:userId LIMIT 1") suspend fun get(id:String,userId:String):Income?
     @Query("UPDATE income SET deleted=1, updatedAt=:at WHERE id=:id AND userId=:userId") suspend fun softDelete(id: String,userId: String,at: Long=System.currentTimeMillis())
 }
 @Dao interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE userId=:userId AND deleted=0 ORDER BY occurredOn DESC") fun observe(userId: String): Flow<List<Expense>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(value: Expense)
+    @Query("SELECT * FROM expenses WHERE id=:id AND userId=:userId LIMIT 1") suspend fun get(id:String,userId:String):Expense?
     @Query("UPDATE expenses SET deleted=1, updatedAt=:at WHERE id=:id AND userId=:userId") suspend fun softDelete(id: String,userId: String,at: Long=System.currentTimeMillis())
 }
 @Dao interface DebtDao {
     @Query("SELECT * FROM debts WHERE userId=:userId AND deleted=0 ORDER BY startDate DESC") fun observe(userId: String): Flow<List<Debt>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(value: Debt)
+    @Query("SELECT * FROM debts WHERE id=:id AND userId=:userId LIMIT 1") suspend fun get(id:String,userId:String):Debt?
     @Query("UPDATE debts SET status=:status, updatedAt=:at WHERE id=:id AND userId=:userId") suspend fun setStatus(id:String,userId:String,status:String,at:Long=System.currentTimeMillis())
     @Query("UPDATE debts SET deleted=1, updatedAt=:at WHERE id=:id AND userId=:userId") suspend fun softDelete(id:String,userId:String,at:Long=System.currentTimeMillis())
 }
 @Dao interface PaymentDao {
     @Query("SELECT * FROM debt_monthly_payments WHERE debtId=:debtId AND userId=:userId AND deleted=0 ORDER BY paymentMonth") fun observe(debtId:String,userId:String): Flow<List<DebtMonthlyPayment>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(value: DebtMonthlyPayment)
+    @Query("SELECT * FROM debt_monthly_payments WHERE id=:id AND userId=:userId LIMIT 1") suspend fun get(id:String,userId:String):DebtMonthlyPayment?
+    @Query("UPDATE debt_monthly_payments SET deleted=1, updatedAt=:at WHERE id=:id AND userId=:userId") suspend fun softDelete(id:String,userId:String,at:Long=System.currentTimeMillis())
     @Query("UPDATE debt_monthly_payments SET status=:status, amount=:amount, updatedAt=:at WHERE id=:id AND userId=:userId") suspend fun setStatus(id:String,userId:String,status:String,amount:Long,at:Long=System.currentTimeMillis())
 }
 @Dao interface AuditDao {
@@ -88,6 +114,7 @@ data class SyncQueue(
     @Query("SELECT * FROM sync_queue ORDER BY createdAt LIMIT :limit") suspend fun next(limit:Int):List<SyncQueue>
     @Delete suspend fun remove(value:SyncQueue)
     @Query("UPDATE sync_queue SET attempts=attempts+1,lastError=:error WHERE id=:id") suspend fun failed(id:String,error:String)
+    @Query("SELECT COUNT(*) FROM sync_queue") suspend fun count():Int
 }
 
 @Database(entities=[Income::class,Expense::class,Debt::class,DebtMonthlyPayment::class,AuditLog::class,SyncQueue::class],version=2,exportSchema=false)
