@@ -27,6 +27,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var page: LinearLayout
     private lateinit var pageTitle: TextView
     private var syncTrigger: ConnectivitySyncTrigger? = null
+    private lateinit var syncRepository: SupabaseSyncRepository
+    private lateinit var syncProcessor: SyncProcessor
     private var observing = false
     private var current = "Dashboard"
     private var dark = false
@@ -108,14 +110,14 @@ class MainActivity : AppCompatActivity() {
     private fun enterApp() {
         getSharedPreferences("moneytrack", 0).edit().putBoolean("signed_in", true).apply()
         repository = FinanceRepository(FinanceDatabase.create(this), userId)
-        val syncRepository = SupabaseSyncRepository(
+        syncRepository = SupabaseSyncRepository(
             BuildConfig.SUPABASE_URL,
             BuildConfig.SUPABASE_ANON_KEY,
             SessionStore(this)
         )
-        val processor = SyncProcessor(FinanceDatabase.create(this))
+        syncProcessor = SyncProcessor(FinanceDatabase.create(this))
         syncTrigger = ConnectivitySyncTrigger(this) {
-            processor.synchronize(
+            syncProcessor.synchronize(
                 uploader = { item -> syncRepository.upload(item) },
                 puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
             )
@@ -123,7 +125,7 @@ class MainActivity : AppCompatActivity() {
         try {
             syncTrigger?.start()
             scope.launch(Dispatchers.IO) {
-                processor.synchronize(
+                syncProcessor.synchronize(
                     uploader = { item -> syncRepository.upload(item) },
                     puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
                 )
@@ -149,6 +151,11 @@ class MainActivity : AppCompatActivity() {
         })
         pageTitle = label("Dashboard", 21f).apply { setTextColor(if (dark) Color.WHITE else Color.rgb(25, 42, 65)) }
         toolbar.addView(pageTitle, LinearLayout.LayoutParams(0, -2, 1f))
+        toolbar.addView(button("Refresh").apply {
+            minWidth = dp(82)
+            contentDescription = "Sync and refresh data"
+            setOnClickListener { syncNow() }
+        })
         toolbar.addView(label("₱", 24f))
         main.addView(toolbar)
         page = vertical()
@@ -156,6 +163,28 @@ class MainActivity : AppCompatActivity() {
         drawer.addView(main, DrawerLayout.LayoutParams(-1, -1))
         drawer.addView(buildDrawer(), DrawerLayout.LayoutParams(dp(300), -1).apply { gravity = Gravity.LEFT })
         setContentView(drawer)
+    }
+
+    private fun syncNow() {
+        if (!::syncRepository.isInitialized || !::syncProcessor.isInitialized) {
+            Toast.makeText(this, "Sync is not available in offline mode.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, "Syncing local changes and fetching cloud data...", Toast.LENGTH_SHORT).show()
+        scope.launch {
+            val success = withContext(Dispatchers.IO) {
+                syncProcessor.synchronize(
+                    uploader = { item -> syncRepository.upload(item) },
+                    puller = { syncRepository.pullAll(FinanceDatabase.create(this@MainActivity), userId) }
+                )
+            }
+            render()
+            Toast.makeText(
+                this@MainActivity,
+                if (success) "Sync complete." else "Sync incomplete. Check your connection and Supabase session.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun buildDrawer(): View {

@@ -28,30 +28,33 @@ class SessionStore(context: Context) {
 }
 
 class SupabaseSyncRepository(
-    private val baseUrl: String, private val apiKey: String, private val session: SessionStore,
+    private val baseUrl: String,
+    private val apiKey: String,
+    private val session: SessionStore,
     private val client: OkHttpClient = OkHttpClient()
 ) {
     suspend fun upload(item: SyncQueue): Boolean = withContext(Dispatchers.IO) {
         val token = session.accessToken ?: return@withContext false
         val table = when (item.recordType) {
-            "income" -> "income"; "expense" -> "expenses"; "debt" -> "debts"
-            "debt_monthly_payment" -> "debt_monthly_payments"; else -> return@withContext false
+            "income" -> "income"
+            "expense" -> "expenses"
+            "debt" -> "debts"
+            "debt_monthly_payment" -> "debt_monthly_payments"
+            else -> return@withContext false
         }
-        // All local changes are soft deletes/upserts. Keeping one upsert path means
-        // deleted rows remain available for audit and can synchronize safely.
-        val method = "POST"
-        val query = "?on_conflict=id"
-        val request = Request.Builder().url(baseUrl.trimEnd('/') + "/rest/v1/$table$query")
-            .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer $token")
+        val request = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/rest/v1/$table?on_conflict=id")
+            .addHeader("apikey", apiKey)
+            .addHeader("Authorization", "Bearer " + token)
             .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
             .addHeader("Content-Type", "application/json")
-            .method(method, item.payload.toRequestBody("application/json".toMediaType()))
+            .post(item.payload.toRequestBody("application/json".toMediaType()))
             .build()
         repeat(3) { attempt ->
             try {
-                client.newCall(request).execute().use {
-                    if (it.isSuccessful) return@withContext true
-                    if (it.code !in listOf(408, 425, 429) && it.code < 500) return@withContext false
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) return@withContext true
+                    if (response.code !in listOf(408, 425, 429) && response.code < 500) return@withContext false
                 }
             } catch (_: IOException) {
                 if (attempt == 2) return@withContext false
@@ -61,21 +64,26 @@ class SupabaseSyncRepository(
         false
     }
 
-    suspend fun pull(table: String, updatedAfter: Long = 0L): String = withContext(Dispatchers.IO) {
+    suspend fun pull(table: String, userId: String, updatedAfter: Long = 0L): String = withContext(Dispatchers.IO) {
         val token = session.accessToken ?: throw IOException("No authenticated Supabase session")
+        val encodedTime = java.net.URLEncoder.encode(iso(updatedAfter), "UTF-8")
+        val encodedUser = java.net.URLEncoder.encode(userId, "UTF-8")
         val request = Request.Builder()
-            .url(baseUrl.trimEnd('/') + "/rest/v1/$table?updated_at=gt.${java.net.URLEncoder.encode(iso(updatedAfter), "UTF-8")}&order=updated_at.asc")
-            .addHeader("apikey", apiKey).addHeader("Authorization", "Bearer $token")
-            .addHeader("Accept", "application/json").get().build()
-        client.newCall(request).execute().use {
-            if (!it.isSuccessful) throw IOException("Pull failed ${it.code}")
-            it.body?.string().orEmpty()
+            .url(baseUrl.trimEnd('/') + "/rest/v1/$table?user_id=eq.$encodedUser&updated_at=gt.$encodedTime&order=updated_at.asc")
+            .addHeader("apikey", apiKey)
+            .addHeader("Authorization", "Bearer " + token)
+            .addHeader("Accept", "application/json")
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("Pull failed ${response.code}: ${response.body?.string().orEmpty()}")
+            response.body?.string().orEmpty()
         }
     }
 
     suspend fun pullAll(db: FinanceDatabase, userId: String, updatedAfter: Long = 0L) {
         listOf("income", "expenses", "debts", "debt_monthly_payments").forEach { table ->
-            applyRows(db, userId, table, JSONArray(pull(table, updatedAfter)))
+            applyRows(db, userId, table, JSONArray(pull(table, userId, updatedAfter)))
         }
     }
 
@@ -86,32 +94,34 @@ class SupabaseSyncRepository(
             val at = millis(row, "updated_at")
             when (table) {
                 "income" -> {
-                    val value = Income(row.optString("id"), userId, row.optString("title"), cents(row,"amount"), row.optString("occurred_on"), nullable(row,"category"), nullable(row,"notes"), at, row.optBoolean("deleted"))
+                    val value = Income(row.optString("id"), userId, row.optString("title"), cents(row, "amount"), row.optString("occurred_on"), nullable(row, "category"), nullable(row, "notes"), at, row.optBoolean("deleted"))
                     if ((db.income().get(value.id, userId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.income().upsert(value)
                 }
                 "expenses" -> {
-                    val value = Expense(row.optString("id"), userId, row.optString("title"), cents(row,"amount"), row.optString("occurred_on"), nullable(row,"category"), nullable(row,"notes"), at, row.optBoolean("deleted"))
+                    val value = Expense(row.optString("id"), userId, row.optString("title"), cents(row, "amount"), row.optString("occurred_on"), nullable(row, "category"), nullable(row, "notes"), at, row.optBoolean("deleted"))
                     if ((db.expense().get(value.id, userId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.expense().upsert(value)
                 }
                 "debts" -> {
-                    val value = Debt(row.optString("id"), userId, row.optString("person"), cents(row,"principal_amount"), row.optDouble("interest_rate"), row.optString("interest_type","flat"), row.optInt("number_of_months",1), row.optString("start_date"), nullable(row,"due_date"), optionalCents(row,"monthly_expected_payment"), optionalCents(row,"total_payable"), nullable(row,"notes"), row.optString("status","active"), at, row.optBoolean("deleted"))
+                    val value = Debt(row.optString("id"), userId, row.optString("person"), cents(row, "principal_amount"), row.optDouble("interest_rate"), row.optString("interest_type", "flat"), row.optInt("number_of_months", 1), row.optString("start_date"), nullable(row, "due_date"), optionalCents(row, "monthly_expected_payment"), optionalCents(row, "total_payable"), nullable(row, "notes"), row.optString("status", "active"), at, row.optBoolean("deleted"))
                     if ((db.debt().get(value.id, userId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.debt().upsert(value)
                 }
                 "debt_monthly_payments" -> {
-                    val value = DebtMonthlyPayment(row.optString("id"), row.optString("debt_id"), userId, row.optString("payment_month"), cents(row,"amount"), row.optString("status","unpaid"), nullable(row,"notes"), at, row.optBoolean("deleted"))
+                    val value = DebtMonthlyPayment(row.optString("id"), row.optString("debt_id"), userId, row.optString("payment_month"), cents(row, "amount"), row.optString("status", "unpaid"), nullable(row, "notes"), at, row.optBoolean("deleted"))
                     if ((db.payment().get(value.id, userId)?.updatedAt ?: Long.MIN_VALUE) <= at) db.payment().upsert(value)
                 }
             }
         }
     }
+
     private fun nullable(row: JSONObject, key: String): String? = if (row.isNull(key)) null else row.optString(key)
     private fun cents(row: JSONObject, key: String): Long = Math.round(row.optDouble(key, 0.0) * 100.0)
-    private fun optionalCents(row: JSONObject, key: String): Long? = if (!row.has(key) || row.isNull(key)) null else cents(row,key)
+    private fun optionalCents(row: JSONObject, key: String): Long? = if (!row.has(key) || row.isNull(key)) null else cents(row, key)
+
     private fun millis(row: JSONObject, key: String): Long {
         val value = row.opt(key)
         if (value is Number) return if (value.toLong() < 100000000000L) value.toLong() * 1000 else value.toLong()
-        val raw = value.toString()
-        var normalized = if (raw.endsWith("Z")) raw.substring(0, raw.length - 1) + "+0000" else raw
+        var normalized = value.toString()
+        if (normalized.endsWith("Z")) normalized = normalized.substring(0, normalized.length - 1) + "+0000"
         if (normalized.length >= 6 && normalized[normalized.length - 3] == ':') {
             normalized = normalized.substring(0, normalized.length - 3) + normalized.substring(normalized.length - 2)
         }
@@ -119,6 +129,7 @@ class SupabaseSyncRepository(
             .mapNotNull { pattern -> runCatching { SimpleDateFormat(pattern, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(normalized)?.time }.getOrNull() }
             .firstOrNull() ?: 0L
     }
+
     private fun iso(time: Long): String = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
         .apply { timeZone = TimeZone.getTimeZone("UTC") }.format(java.util.Date(time))
 }
